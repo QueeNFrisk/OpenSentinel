@@ -21,14 +21,16 @@ impl DatabasePool {
 				config.host, config.port
 			))?;
 
-		Ok(Self { inner: pool })
+		let db = Self { inner: pool };
+		db.run_migrations().await?;
+		Ok(db)
 	}
 
 	pub fn inner(&self) -> &PgPool {
 		&self.inner
 	}
 
-	pub async fn run_migrations(&self) -> Result<()> {
+	async fn run_migrations(&self) -> Result<()> {
 		sqlx::migrate!("./migrations")
 			.run(&self.inner)
 			.await
