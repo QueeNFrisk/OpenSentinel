@@ -32,6 +32,38 @@ pub enum Commands {
 
 	#[command(about = "Initialize a project config file (opensentinel.json)")]
 	Init(InitOptions),
+
+	#[command(about = "Community malicious package database commands")]
+	Community(CommunityOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct CommunityOptions {
+	#[command(subcommand)]
+	pub command: CommunityCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CommunityCommands {
+	#[command(about = "List all known malicious packages in the bundled database")]
+	List {
+		#[arg(
+			short,
+			long,
+			help = "Filter by ecosystem (npm, pypi, cargo, ...)"
+		)]
+		ecosystem: Option<String>,
+
+		#[arg(
+			short,
+			long,
+			help = "Filter by severity (critical, high, medium, low)"
+		)]
+		severity: Option<String>,
+	},
+
+	#[command(about = "Show the bundled database version and entry count")]
+	Info,
 }
 
 #[derive(Parser, Debug)]

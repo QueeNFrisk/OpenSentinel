@@ -85,7 +85,10 @@ impl VulnListPanel {
 			.style(Theme::panel());
 
 		let n_adv = risk.advisories.len();
-		let total = n_adv + risk.detections.len();
+		let n_det = risk.detections.len();
+		let n_ver = risk.version_changes.len();
+		let n_com = risk.community_reports.len();
+		let total = n_adv + n_det + n_ver + n_com;
 
 		if total == 0 {
 			f.render_widget(
@@ -122,7 +125,7 @@ impl VulnListPanel {
 						]),
 						Line::from(Span::styled(subtitle, Theme::dim())),
 					])
-				} else {
+				} else if i < n_adv + n_det {
 					let det = &risk.detections[i - n_adv];
 					let sev = if det.confidence >= 0.8 {
 						"HIGH"
@@ -155,6 +158,47 @@ impl VulnListPanel {
 						]),
 						Line::from(Span::styled(location, Theme::dim())),
 					])
+				} else {
+					let idx = i - n_adv - n_det;
+					if idx < n_ver {
+						let diff = &risk.version_changes[idx];
+						let sev = match diff.severity {
+							crate::database::models::SeverityLevel::Critical => "CRITICAL",
+							crate::database::models::SeverityLevel::High => "HIGH",
+							crate::database::models::SeverityLevel::Medium => "MEDIUM",
+							crate::database::models::SeverityLevel::Low => "LOW",
+							crate::database::models::SeverityLevel::Safe => "SAFE",
+						};
+						let label: String = diff.description.chars().take(45).collect();
+						let label = if diff.description.len() > 45 { format!("{label}…") } else { label };
+						ListItem::new(vec![
+							Line::from(vec![
+								Span::styled(" [VERSION] ", Theme::secondary()),
+								Span::styled(label, Theme::severity_style(sev)),
+								Span::styled(format!("  {sev}"), Theme::severity_style(sev)),
+							]),
+							Line::from(Span::styled(
+								format!("  {} → {}", diff.from_version, diff.to_version),
+								Theme::dim(),
+							)),
+						])
+					} else {
+						let report = &risk.community_reports[idx - n_ver];
+						let sev = report.severity.label();
+						let reason: String = report.reason.chars().take(45).collect();
+						let reason = if report.reason.len() > 45 { format!("{reason}…") } else { reason };
+						let version_hint = report.matched_version.as_deref()
+							.map(|v| format!("  v{v} affected"))
+							.unwrap_or_else(|| "  all versions".to_string());
+						ListItem::new(vec![
+							Line::from(vec![
+								Span::styled(" [COMMUNITY] ", Theme::severity_style("CRITICAL")),
+								Span::styled(reason, Theme::severity_style(sev)),
+								Span::styled(format!("  {sev}"), Theme::severity_style(sev)),
+							]),
+							Line::from(Span::styled(version_hint, Theme::dim())),
+						])
+					}
 				}
 			})
 			.collect();
@@ -192,7 +236,10 @@ impl VulnDetailPanel {
 		};
 
 		let n_adv = risk.advisories.len();
-		let total = n_adv + risk.detections.len();
+		let n_det = risk.detections.len();
+		let n_ver = risk.version_changes.len();
+		let n_com = risk.community_reports.len();
+		let total = n_adv + n_det + n_ver + n_com;
 
 		if total == 0 {
 			f.render_widget(
@@ -209,8 +256,15 @@ impl VulnDetailPanel {
 		let sel = state.selected_vuln.min(total.saturating_sub(1));
 		let lines = if sel < n_adv {
 			Self::advisory_lines(&risk.advisories[sel], risk)
-		} else {
+		} else if sel < n_adv + n_det {
 			Self::detection_lines(&risk.detections[sel - n_adv], risk)
+		} else {
+			let idx = sel - n_adv - n_det;
+			if idx < n_ver {
+				Self::version_diff_lines(&risk.version_changes[idx], risk)
+			} else {
+				Self::community_report_lines(&risk.community_reports[idx - n_ver], risk)
+			}
 		};
 
 		f.render_widget(
@@ -363,10 +417,221 @@ impl VulnDetailPanel {
 		lines
 	}
 
+	fn version_diff_lines(
+		diff: &crate::database::models::VersionDiff,
+		risk: &crate::scoring::models::PackageRisk,
+	) -> Vec<Line<'static>> {
+		let mut lines = Vec::new();
+
+		let sev = match diff.severity {
+			crate::database::models::SeverityLevel::Critical => "CRITICAL",
+			crate::database::models::SeverityLevel::High => "HIGH",
+			crate::database::models::SeverityLevel::Medium => "MEDIUM",
+			crate::database::models::SeverityLevel::Low => "LOW",
+			crate::database::models::SeverityLevel::Safe => "SAFE",
+		};
+
+		let change_label = match diff.change_type {
+			crate::database::models::VersionChangeType::FilesRemoved => "Files Removed",
+			crate::database::models::VersionChangeType::LicenseChanged => "License Changed",
+			crate::database::models::VersionChangeType::ManifestChanged => "Manifest Changed",
+			crate::database::models::VersionChangeType::DependenciesChanged => "Dependencies Changed",
+			crate::database::models::VersionChangeType::PermissionsChanged => "Permissions Changed",
+		};
+
+		lines.push(Line::from(vec![
+			Span::styled(" [VERSION] ", Theme::secondary()),
+			Span::styled(change_label.to_string(), Theme::severity_style(sev)),
+			Span::styled(format!("  {sev}"), Theme::severity_style(sev)),
+		]));
+		lines.push(Line::from(""));
+
+		lines.push(Line::from(vec![
+			Span::styled("  Range:  ", Theme::secondary()),
+			Span::styled(
+				format!("{} → {}", diff.from_version, diff.to_version),
+				Theme::base(),
+			),
+		]));
+		lines.push(Line::from(""));
+
+		lines.push(Line::from(Span::styled("  Description:", Theme::accent())));
+		for desc_line in diff.description.lines() {
+			lines.push(Line::from(Span::styled(
+				format!("    {desc_line}"),
+				Theme::dim(),
+			)));
+		}
+
+		lines.push(Line::from(""));
+		lines.push(Line::from(vec![
+			Span::styled("  Detected: ", Theme::secondary()),
+			Span::styled(
+				diff.detected_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+				Theme::dim(),
+			),
+		]));
+
+		lines.push(Line::from(""));
+		Self::append_package_context(&mut lines, risk);
+		lines
+	}
+
+	fn community_report_lines(
+		report: &crate::community::models::CommunityReport,
+		risk: &crate::scoring::models::PackageRisk,
+	) -> Vec<Line<'static>> {
+		let sev = report.severity.label();
+		let mut lines = vec![
+			Line::from(vec![
+				Span::styled(" [COMMUNITY] ", Theme::severity_style("CRITICAL")),
+				Span::styled(sev.to_string(), Theme::severity_style(sev)),
+				Span::styled("  Known malicious package report", Theme::dim()),
+			]),
+			Line::from(""),
+		];
+
+		lines.push(Line::from(Span::styled("  Reason:", Theme::accent())));
+		for line in report.reason.lines() {
+			lines.push(Line::from(Span::styled(
+				format!("    {line}"),
+				Theme::base(),
+			)));
+		}
+		lines.push(Line::from(""));
+
+		let version_scope = match &report.matched_version {
+			Some(v) => format!("Version {v} (specific version affected)"),
+			None => "All versions (entire package is malicious)".to_string(),
+		};
+		lines.push(Line::from(vec![
+			Span::styled("  Scope:   ", Theme::secondary()),
+			Span::styled(version_scope, Theme::severity_style(sev)),
+		]));
+
+		let source_label = match report.source {
+			crate::community::models::ReportSource::Community  => "OpenSentinel Community",
+			crate::community::models::ReportSource::Osv        => "OSV Database",
+			crate::community::models::ReportSource::SocketDev  => "Socket.dev",
+			crate::community::models::ReportSource::Sonatype   => "Sonatype",
+		};
+		lines.push(Line::from(vec![
+			Span::styled("  Source:  ", Theme::secondary()),
+			Span::styled(source_label.to_string(), Theme::dim()),
+		]));
+
+		if let Some(date) = &report.reported_at {
+			lines.push(Line::from(vec![
+				Span::styled("  Reported:", Theme::secondary()),
+				Span::styled(format!(" {date}"), Theme::dim()),
+			]));
+		}
+
+		if !report.references.is_empty() {
+			lines.push(Line::from(""));
+			lines.push(Line::from(Span::styled("  References:", Theme::secondary())));
+			for url in &report.references {
+				lines.push(Line::from(Span::styled(format!("    • {url}"), Theme::dim())));
+			}
+		}
+
+		lines.push(Line::from(""));
+		lines.push(Line::from(vec![
+			Span::styled("  ACTION: ", Theme::severity_style("CRITICAL")),
+			Span::styled(
+				"Remove this package immediately and audit your codebase.",
+				Theme::base(),
+			),
+		]));
+
+		lines.push(Line::from(""));
+		Self::append_package_context(&mut lines, risk);
+		lines
+	}
+
+	fn maintainer_lines(
+		risk: &crate::scoring::models::PackageRisk,
+	) -> Vec<Line<'static>> {
+		let Some(m) = &risk.maintainer else {
+			return vec![
+				Line::from(vec![
+					Span::styled(" [MAINTAINER] ", Theme::secondary()),
+					Span::styled("No repository data available", Theme::dim()),
+				]),
+			];
+		};
+
+		let health_pct = (risk.reputation_score * 100.0) as u32;
+		let health_label = if risk.reputation_score < 0.3 {
+			"LOW RISK"
+		} else if risk.reputation_score < 0.6 {
+			"MODERATE RISK"
+		} else {
+			"HIGH RISK"
+		};
+
+		let mut lines = vec![
+			Line::from(vec![
+				Span::styled(" [MAINTAINER] ", Theme::secondary()),
+				Span::styled(health_label.to_string(), Theme::severity_style(health_label)),
+				Span::styled(format!("  reputation risk {health_pct}%"), Theme::dim()),
+			]),
+			Line::from(""),
+		];
+
+		if let Some(url) = &m.repo_url {
+			lines.push(Line::from(vec![
+				Span::styled("  Repository:   ", Theme::secondary()),
+				Span::styled(url.clone(), Theme::base()),
+			]));
+		}
+
+		lines.push(Line::from(vec![
+			Span::styled("  Last push:    ", Theme::secondary()),
+			Span::styled(
+				if m.days_since_push >= 9999 {
+					"unknown".to_string()
+				} else {
+					format!("{} days ago", m.days_since_push)
+				},
+				if m.days_since_push > 365 { Theme::severity_style("HIGH") } else { Theme::base() },
+			),
+		]));
+
+		lines.push(Line::from(vec![
+			Span::styled("  Releases/yr:  ", Theme::secondary()),
+			Span::styled(
+				m.releases_last_year.to_string(),
+				if m.releases_last_year == 0 { Theme::severity_style("MEDIUM") } else { Theme::base() },
+			),
+		]));
+
+		lines.push(Line::from(vec![
+			Span::styled("  Open issues:  ", Theme::secondary()),
+			Span::styled(m.open_issues.to_string(), Theme::base()),
+		]));
+
+		lines.push(Line::from(vec![
+			Span::styled("  Stars:        ", Theme::secondary()),
+			Span::styled(m.stars.to_string(), Theme::dim()),
+			Span::styled("  Forks: ", Theme::secondary()),
+			Span::styled(m.forks.to_string(), Theme::dim()),
+			Span::styled("  Contributors: ", Theme::secondary()),
+			Span::styled(m.contributor_count.to_string(), Theme::dim()),
+		]));
+
+		lines.push(Line::from(""));
+		lines
+	}
+
 	fn append_package_context(
 		lines: &mut Vec<Line<'static>>,
 		risk: &crate::scoring::models::PackageRisk,
 	) {
+		if risk.maintainer.is_some() || risk.reputation_score > 0.0 {
+			lines.extend(Self::maintainer_lines(risk));
+		}
+
 		if !risk.mitre_mappings.is_empty() {
 			lines.push(Line::from(Span::styled("  MITRE ATT&CK:", Theme::accent())));
 			for mapping in &risk.mitre_mappings {

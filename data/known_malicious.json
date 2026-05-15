@@ -1,0 +1,207 @@
+{
+  "version": "2024.1",
+  "updated_at": "2024-12-01",
+  "source": "https://github.com/nicowillis/opensentinel-malicious-db",
+  "entries": [
+    {
+      "package_name": "event-stream",
+      "ecosystem": "npm",
+      "affected_versions": ["3.3.6"],
+      "severity": "critical",
+      "reason": "Backdoor targeting copay bitcoin wallet — malicious flatmap-stream dependency injected by hijacked maintainer account",
+      "source": "community",
+      "reported_at": "2018-11-26",
+      "references": ["https://snyk.io/vuln/SNYK-JS-EVENTSTREAM-72638"]
+    },
+    {
+      "package_name": "flatmap-stream",
+      "ecosystem": "npm",
+      "affected_versions": ["0.1.1"],
+      "severity": "critical",
+      "reason": "Payload delivery package for event-stream attack — decrypts and executes malicious code targeting bitcoin wallets",
+      "source": "community",
+      "reported_at": "2018-11-26",
+      "references": ["https://snyk.io/vuln/SNYK-JS-FLATMAPSTREAM-72637"]
+    },
+    {
+      "package_name": "ua-parser-js",
+      "ecosystem": "npm",
+      "affected_versions": ["0.7.29", "0.7.30", "1.0.0"],
+      "severity": "critical",
+      "reason": "Hijacked versions install crypto miner (XMRig) and credential-stealing malware (Linux/macOS and Windows)",
+      "source": "community",
+      "reported_at": "2021-10-22",
+      "references": ["https://github.com/advisories/GHSA-pjwm-rvh2-c87w"]
+    },
+    {
+      "package_name": "coa",
+      "ecosystem": "npm",
+      "affected_versions": ["2.0.3", "2.0.4", "3.0.1", "3.1.3"],
+      "severity": "critical",
+      "reason": "Hijacked npm account — malicious versions install password-stealing malware similar to ua-parser-js attack",
+      "source": "community",
+      "reported_at": "2021-11-04",
+      "references": ["https://github.com/advisories/GHSA-73qr-pfmq-6rp8"]
+    },
+    {
+      "package_name": "rc",
+      "ecosystem": "npm",
+      "affected_versions": ["1.2.9"],
+      "severity": "critical",
+      "reason": "Hijacked — malicious version installs credential-harvesting malware (same campaign as coa and ua-parser-js)",
+      "source": "community",
+      "reported_at": "2021-11-04",
+      "references": ["https://github.com/advisories/GHSA-g2q5-5433-rhrf"]
+    },
+    {
+      "package_name": "node-ipc",
+      "ecosystem": "npm",
+      "affected_versions": ["10.1.1", "10.1.2"],
+      "severity": "high",
+      "reason": "Protestware — maintainer added geopolitical payload that overwrites files with a heart emoji for users in Russia and Belarus",
+      "source": "community",
+      "reported_at": "2022-03-16",
+      "references": ["https://snyk.io/vuln/SNYK-JS-NODEIPC-2426370"]
+    },
+    {
+      "package_name": "peacenotwar",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "high",
+      "reason": "Intentionally malicious protestware — adds destructive payload that deletes files based on geolocation (same author as node-ipc)",
+      "source": "community",
+      "reported_at": "2022-03-15",
+      "references": ["https://snyk.io/vuln/SNYK-JS-PEACENOTWAR-2426165"]
+    },
+    {
+      "package_name": "colors",
+      "ecosystem": "npm",
+      "affected_versions": ["1.4.1"],
+      "severity": "medium",
+      "reason": "Maintainer deliberately introduced infinite loop regression — breaks any application that updates to this version",
+      "source": "community",
+      "reported_at": "2022-01-09",
+      "references": ["https://snyk.io/vuln/SNYK-JS-COLORS-2331906"]
+    },
+    {
+      "package_name": "faker",
+      "ecosystem": "npm",
+      "affected_versions": ["6.6.6"],
+      "severity": "medium",
+      "reason": "Maintainer deliberately sabotaged — published version outputs garbage to protest open-source labor exploitation",
+      "source": "community",
+      "reported_at": "2022-01-07",
+      "references": ["https://snyk.io/vuln/SNYK-JS-FAKER-2331813"]
+    },
+    {
+      "package_name": "twilio-npm",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Typosquat of the official twilio package — exfiltrates environment variables to attacker-controlled server on install",
+      "source": "community",
+      "reported_at": "2020-08-07",
+      "references": ["https://snyk.io/vuln/SNYK-JS-TWILIONPM-594914"]
+    },
+    {
+      "package_name": "cross-env.js",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "high",
+      "reason": "Typosquat of cross-env — runs malicious postinstall script that exfiltrates system information",
+      "source": "community",
+      "reported_at": "2019-06-13",
+      "references": ["https://snyk.io/vuln/npm:cross-env.js:20190601"]
+    },
+    {
+      "package_name": "electorn",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "high",
+      "reason": "Typosquat of electron — installs crypto miner on postinstall",
+      "source": "community",
+      "reported_at": "2018-09-01",
+      "references": []
+    },
+    {
+      "package_name": "lodahs",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "high",
+      "reason": "Typosquat of lodash — exfiltrates environment variables and system info",
+      "source": "community",
+      "reported_at": "2020-03-01",
+      "references": []
+    },
+    {
+      "package_name": "discord.dll",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Discord token stealer — scans filesystem for Discord tokens and exfiltrates them via webhook",
+      "source": "community",
+      "reported_at": "2022-05-01",
+      "references": []
+    },
+    {
+      "package_name": "roblox-py",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Credential harvester targeting Roblox accounts — steals cookies and session tokens",
+      "source": "community",
+      "reported_at": "2022-01-01",
+      "references": []
+    },
+    {
+      "package_name": "python-mongo",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Impersonates PyMongo for Node.js — runs reverse shell and credential harvester on install",
+      "source": "community",
+      "reported_at": "2023-01-01",
+      "references": []
+    },
+    {
+      "package_name": "jest-reporter",
+      "ecosystem": "npm",
+      "affected_versions": ["0.0.1", "0.0.2"],
+      "severity": "high",
+      "reason": "Typosquat of jest-jasmine2 — exfiltrates environment variables on postinstall",
+      "source": "community",
+      "reported_at": "2022-09-01",
+      "references": []
+    },
+    {
+      "package_name": "npmrc",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Steals .npmrc credentials (auth tokens) and exfiltrates to attacker server",
+      "source": "community",
+      "reported_at": "2022-06-01",
+      "references": ["https://blog.sonatype.com/npmrc-stealer"]
+    },
+    {
+      "package_name": "aws-cdk-stack",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Impersonates AWS CDK — steals AWS credentials from environment and ~/.aws/credentials",
+      "source": "community",
+      "reported_at": "2023-04-01",
+      "references": []
+    },
+    {
+      "package_name": "http-fetch-commonjs",
+      "ecosystem": "npm",
+      "affected_versions": null,
+      "severity": "critical",
+      "reason": "Dependency confusion attack against internal package names — exfiltrates hostname, username, and AWS metadata",
+      "source": "community",
+      "reported_at": "2021-08-01",
+      "references": []
+    }
+  ]
+}
