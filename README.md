@@ -25,9 +25,7 @@ OpenSentinel scans your full dependency tree — including transitive dependenci
 
 ## Screenshot
 
-```
-![alt text](image.png)
-```
+![OpenSentinel](images/image.png?raw=true)
 
 ---
 
