@@ -1,0 +1,137 @@
+name: 'OpenSentinel Security Scan'
+description: 'Supply chain security scanner — detects malicious packages, CVEs, behavioral anomalies, and maintainer reputation issues'
+author: 'OpenSentinel'
+
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  path:
+    description: 'Path to the project to scan'
+    required: false
+    default: '.'
+  severity:
+    description: 'Comma-separated list of severity levels to include in output (low,medium,high,critical)'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Minimum severity that causes the workflow step to fail (medium | high | critical)'
+    required: false
+    default: 'high'
+  format:
+    description: 'Output format for the report file (json | table | html | sbom)'
+    required: false
+    default: 'json'
+  output:
+    description: 'Path to write the report file. Leave empty to skip file output.'
+    required: false
+    default: 'opensentinel-report.json'
+  github-token:
+    description: 'GitHub token for fetching security advisories (recommended)'
+    required: false
+    default: ''
+
+outputs:
+  exit-code:
+    description: '0=safe, 1=medium+, 2=high+, 3=critical'
+    value: ${{ steps.scan.outputs.exit-code }}
+  report-path:
+    description: 'Path to the generated report file'
+    value: ${{ steps.scan.outputs.report-path }}
+  critical-count:
+    description: 'Number of critical severity packages found'
+    value: ${{ steps.parse.outputs.critical-count }}
+  high-count:
+    description: 'Number of high severity packages found'
+    value: ${{ steps.parse.outputs.high-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Cache Cargo registry and build artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          ${{ github.action_path }}/target
+        key: ${{ runner.os }}-opensentinel-${{ hashFiles(format('{0}/Cargo.lock', github.action_path)) }}
+        restore-keys: |
+          ${{ runner.os }}-opensentinel-
+
+    - name: Build OpenSentinel
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: cargo build --release --quiet
+
+    - name: Run security scan
+      id: scan
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        BINARY="${{ github.action_path }}/target/release/opse"
+        OUTPUT_ARG=""
+        if [ -n "${{ inputs.output }}" ]; then
+          OUTPUT_ARG="--output=${{ inputs.output }}"
+        fi
+
+        SEVERITY_ARG=""
+        if [ -n "${{ inputs.severity }}" ]; then
+          SEVERITY_ARG="--severity=${{ inputs.severity }}"
+        fi
+
+        set +e
+        "$BINARY" analyze \
+          --format=${{ inputs.format }} \
+          $OUTPUT_ARG \
+          $SEVERITY_ARG \
+          "${{ inputs.path }}"
+        EXIT_CODE=$?
+        set -e
+
+        echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+        echo "report-path=${{ inputs.output }}" >> "$GITHUB_OUTPUT"
+
+        case $EXIT_CODE in
+          0) echo "::notice::OpenSentinel: No medium+ severity issues found." ;;
+          1) echo "::warning::OpenSentinel: Medium severity issues detected." ;;
+          2) echo "::warning::OpenSentinel: High severity issues detected." ;;
+          3) echo "::error::OpenSentinel: CRITICAL severity issues detected." ;;
+        esac
+
+    - name: Parse result counts
+      id: parse
+      if: inputs.format == 'json' && inputs.output != ''
+      shell: bash
+      run: |
+        REPORT="${{ inputs.output }}"
+        if [ -f "$REPORT" ]; then
+          CRITICAL=$(jq '[.[] | select(.overall_severity == "Critical")] | length' "$REPORT" 2>/dev/null || echo 0)
+          HIGH=$(jq '[.[] | select(.overall_severity == "High")] | length' "$REPORT" 2>/dev/null || echo 0)
+        else
+          CRITICAL=0
+          HIGH=0
+        fi
+        echo "critical-count=$CRITICAL" >> "$GITHUB_OUTPUT"
+        echo "high-count=$HIGH" >> "$GITHUB_OUTPUT"
+
+    - name: Enforce fail-on threshold
+      shell: bash
+      run: |
+        EXIT_CODE=${{ steps.scan.outputs.exit-code }}
+        FAIL_ON="${{ inputs.fail-on }}"
+        case "$FAIL_ON" in
+          medium)   [ "$EXIT_CODE" -lt 1 ] || exit "$EXIT_CODE" ;;
+          high)     [ "$EXIT_CODE" -lt 2 ] || exit "$EXIT_CODE" ;;
+          critical) [ "$EXIT_CODE" -lt 3 ] || exit "$EXIT_CODE" ;;
+          none)     exit 0 ;;
+          *)        [ "$EXIT_CODE" -lt 2 ] || exit "$EXIT_CODE" ;;
+        esac

@@ -72,34 +72,60 @@ impl SbomReporter {
 	}
 
 	fn build_vulnerabilities(risks: &[PackageRisk]) -> Vulnerabilities {
-		let vulns: Vec<Vulnerability> = risks
-			.iter()
-			.flat_map(|risk| {
-				risk.advisories.iter().map(move |advisory| {
-					let mut vuln = Vulnerability::new(Some(advisory.external_id.clone()));
+		let advisory_vulns = risks.iter().flat_map(|risk| {
+			risk.advisories.iter().map(move |advisory| {
+				let mut vuln = Vulnerability::new(Some(advisory.external_id.clone()));
 
-					vuln.id = Some(NormalizedString::new(&advisory.external_id));
+				vuln.id = Some(NormalizedString::new(&advisory.external_id));
 
-					vuln.vulnerability_source = Some(VulnerabilitySource {
-						url: advisory.references.first().and_then(|s| Uri::try_from(s.clone()).ok()),
-						name: Some(NormalizedString::new(Self::source_label(&advisory.source))),
-					});
+				vuln.vulnerability_source = Some(VulnerabilitySource {
+					url: advisory.references.first().and_then(|s| Uri::try_from(s.clone()).ok()),
+					name: Some(NormalizedString::new(Self::source_label(&advisory.source))),
+				});
 
-					let rating = VulnerabilityRating::new(
-						advisory.cvss_score.and_then(Score::from_f32),
-						Some(Self::map_severity(&advisory.severity)),
-						Some(ScoreMethod::CVSSv3),
-					);
+				let rating = VulnerabilityRating::new(
+					advisory.cvss_score.and_then(Score::from_f32),
+					Some(Self::map_severity(&advisory.severity)),
+					Some(ScoreMethod::CVSSv3),
+				);
 
-					vuln.vulnerability_ratings = Some(VulnerabilityRatings(vec![rating]));
-					vuln.description = Some(advisory.description.clone());
+				vuln.vulnerability_ratings = Some(VulnerabilityRatings(vec![rating]));
+				vuln.description = Some(advisory.description.clone());
 
-					vuln
-				})
+				vuln
 			})
-			.collect();
+		});
 
-		Vulnerabilities(vulns)
+		let version_vulns = risks.iter().flat_map(|risk| {
+			risk.version_changes.iter().map(move |diff| {
+				let id = format!(
+					"OPENSENTINEL-VER-{}-{}-{}",
+					risk.package_name,
+					diff.from_version.replace('.', "_"),
+					diff.to_version.replace('.', "_"),
+				);
+				let mut vuln = Vulnerability::new(Some(id.clone()));
+				vuln.id = Some(NormalizedString::new(&id));
+
+				vuln.vulnerability_source = Some(VulnerabilitySource {
+					url: None,
+					name: Some(NormalizedString::new("OpenSentinel-VersionAnalysis")),
+				});
+
+				let rating = VulnerabilityRating::new(
+					None,
+					Some(Self::map_severity(&diff.severity)),
+					Some(ScoreMethod::Unknown("OpenSentinel".to_string())),
+				);
+
+				vuln.vulnerability_ratings = Some(VulnerabilityRatings(vec![rating]));
+				vuln.description = Some(diff.description.clone());
+
+				vuln
+			})
+		});
+
+		Vulnerabilities(advisory_vulns.chain(version_vulns).collect())
 	}
 
 	fn serialize(bom: Bom) -> Result<String> {
@@ -144,9 +170,15 @@ mod tests {
 			overall_severity: if advisories.is_empty() { SeverityLevel::Safe } else { SeverityLevel::High },
 			advisory_score: 0.0,
 			pattern_score: 0.0,
+			version_change_score: 0.0,
+			reputation_score: 0.0,
+			community_score: 0.0,
 			final_score: 0.0,
 			advisories,
 			detections: vec![],
+			version_changes: vec![],
+			community_reports: vec![],
+			maintainer: None,
 			mitre_mappings: vec![],
 			recommendations: vec![],
 			is_direct: true,

@@ -1,0 +1,149 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/pnpm-lock.yaml'
+      - '**/bun.lock'
+      - '**/bunfig.toml'
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  scan:
+    name: Supply Chain Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run OpenSentinel
+        id: sentinel
+        uses: ./
+        with:
+          path: '.'
+          fail-on: 'high'
+          format: 'json'
+          output: 'opensentinel-report.json'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensentinel-report
+          path: opensentinel-report.json
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            let body;
+            const reportPath = 'opensentinel-report.json';
+
+            if (!fs.existsSync(reportPath)) {
+              body = '## OpenSentinel Security Scan\n\nNo report file generated.';
+            } else {
+              const risks = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+
+              const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, SAFE: 0 };
+              for (const r of risks) {
+                const sev = r.overall_severity?.toUpperCase() || 'SAFE';
+                counts[sev] = (counts[sev] || 0) + 1;
+              }
+
+              const exitCode = ${{ steps.sentinel.outputs.exit-code }};
+              const statusEmoji = exitCode === 0 ? '✅' : exitCode === 1 ? '⚠️' : '🚨';
+              const statusText = exitCode === 0
+                ? 'No high+ severity issues found'
+                : exitCode === 3
+                  ? 'CRITICAL issues detected — immediate action required'
+                  : 'Issues detected';
+
+              const rows = risks
+                .filter(r => ['Critical', 'High', 'Medium'].includes(r.overall_severity))
+                .sort((a, b) => {
+                  const order = { Critical: 0, High: 1, Medium: 2 };
+                  return (order[a.overall_severity] ?? 9) - (order[b.overall_severity] ?? 9);
+                })
+                .slice(0, 20)
+                .map(r => {
+                  const communityFlag = r.community_reports?.length > 0 ? ' ⚠️ KNOWN MALICIOUS' : '';
+                  const adv = r.advisories?.length ?? 0;
+                  return `| \`${r.package_name}@${r.package_version}\` | **${r.overall_severity}** | ${(r.final_score * 10).toFixed(1)} | ${adv}${communityFlag} |`;
+                })
+                .join('\n');
+
+              const hasMore = risks.filter(r => ['Critical','High','Medium'].includes(r.overall_severity)).length > 20;
+
+              body = [
+                `## ${statusEmoji} OpenSentinel Security Scan`,
+                '',
+                `**${statusText}**`,
+                '',
+                `| Severity | Count |`,
+                `|----------|-------|`,
+                `| 🔴 Critical | ${counts.CRITICAL} |`,
+                `| 🟠 High | ${counts.HIGH} |`,
+                `| 🟡 Medium | ${counts.MEDIUM} |`,
+                `| 🔵 Low | ${counts.LOW} |`,
+                `| ✅ Safe | ${counts.SAFE} |`,
+                '',
+                ...(rows ? [
+                  '### Issues Requiring Attention',
+                  '',
+                  '| Package | Severity | Score/10 | Advisories |',
+                  '|---------|----------|----------|------------|',
+                  rows,
+                  hasMore ? `\n_...and ${risks.filter(r => ['Critical','High','Medium'].includes(r.overall_severity)).length - 20} more. Download the full report artifact._` : '',
+                ] : []),
+                '',
+                `<sub>Scanned ${risks.length} packages · [OpenSentinel](https://github.com/nicowillis/opensentinel)</sub>`,
+              ].join('\n');
+            }
+
+            const marker = '<!-- opensentinel-scan -->';
+            const fullBody = `${marker}\n${body}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: fullBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: fullBody,
+              });
+            }
