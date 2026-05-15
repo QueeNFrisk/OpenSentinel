@@ -1,0 +1,56 @@
+# ── Rust / Cargo ──────────────────────────────────────────────────────────────
+/target/
+**/*.rs.bk
+*.pdb
+
+# ── Secrets & credentials ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+secrets.toml
+credentials.json
+DATABASE_URL
+
+# ── OpenSentinel config (may contain real passwords / tokens) ─────────────────
+opensentinel.json
+!opensentinel.example.json
+
+# ── OpenSentinel runtime data ─────────────────────────────────────────────────
+.opensentinel/
+opensentinel-*.json
+
+# ── Database files ────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── IDE & editors ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+*.log.*
+
+# ── Internal project docs ─────────────────────────────────────────────────────
+CLAUDE.md
+scrum.md
