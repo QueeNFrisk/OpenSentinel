@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "database": {
+    "engine": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "database": "opensentinel",
+    "user": "postgres",
+    "password": "${DB_PASSWORD}",
+    "ssl": false,
+    "poolSize": 10
+  },
+  "sourceAnalysis": {
+    "enabled": true,
+    "downloadSource": false,
+    "analyzeAst": true,
+    "cacheDir": ".opensentinel/cache",
+    "cacheTtl": 604800,
+    "maxSourceSizeMb": 100
+  },
+  "parallelism": {
+    "packageConcurrency": 4,
+    "apiConcurrency": 3,
+    "osv":    { "limit": 10, "delayMs": 100 },
+    "github": { "limit": 5,  "delayMs": 200 },
+    "nvd":    { "limit": 5,  "delayMs": 200 },
+    "mitre":  { "limit": 3,  "delayMs": 300 }
+  },
+  "credentials": {
+    "githubToken": "${GITHUB_TOKEN}",
+    "nvdApiKey":   "${NVD_API_KEY}",
+    "storage": "env",
+    "keyringSupport": false
+  },
+  "ecosystems": ["nodejs", "bun"],
+  "severity": ["high", "critical"],
+  "excludeDevDeps": false,
+  "keybindings": "arrows",
+  "outputFormat": "sbom"
+}

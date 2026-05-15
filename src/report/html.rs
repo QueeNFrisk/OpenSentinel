@@ -7,6 +7,116 @@ use std::path::Path;
 use crate::scoring::models::PackageRisk;
 use super::Reporter;
 
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::advisory::models::AdvisoryData;
+	use crate::database::models::{AdvisorySource, SeverityLevel};
+
+	fn make_risk(name: &str, severity: SeverityLevel) -> PackageRisk {
+		PackageRisk {
+			package_name: name.to_string(),
+			package_version: "1.0.0".to_string(),
+			ecosystem: "nodejs".to_string(),
+			overall_severity: severity,
+			advisory_score: 0.8,
+			pattern_score: 0.0,
+			final_score: 0.8,
+			advisories: vec![AdvisoryData {
+				source: AdvisorySource::Osv,
+				external_id: "CVE-2024-0001".to_string(),
+				title: "Test CVE".to_string(),
+				description: "A test vulnerability".to_string(),
+				severity: SeverityLevel::High,
+				cvss_score: Some(8.0),
+				affected_versions: "< 2.0.0".to_string(),
+				patched_versions: Some("2.0.0".to_string()),
+				published_at: None,
+				references: vec!["https://example.com".to_string()],
+			}],
+			detections: vec![],
+			mitre_mappings: vec![],
+			recommendations: vec!["Upgrade to 2.0.0".to_string()],
+			is_direct: true,
+			depth: 1,
+		}
+	}
+
+	fn make_safe_risk(name: &str) -> PackageRisk {
+		PackageRisk {
+			package_name: name.to_string(),
+			package_version: "1.0.0".to_string(),
+			ecosystem: "nodejs".to_string(),
+			overall_severity: SeverityLevel::Safe,
+			advisory_score: 0.0,
+			pattern_score: 0.0,
+			final_score: 0.0,
+			advisories: vec![],
+			detections: vec![],
+			mitre_mappings: vec![],
+			recommendations: vec![],
+			is_direct: true,
+			depth: 1,
+		}
+	}
+
+	#[test]
+	fn renders_valid_html_document() {
+		let risks = vec![make_risk("lodash", SeverityLevel::High)];
+		let html = HtmlReporter::render(&risks);
+		assert!(html.starts_with("<!DOCTYPE html>"));
+		assert!(html.contains("<html"));
+		assert!(html.contains("</html>"));
+	}
+
+	#[test]
+	fn includes_package_name_in_output() {
+		let risks = vec![make_risk("my-vulnerable-package", SeverityLevel::Critical)];
+		let html = HtmlReporter::render(&risks);
+		assert!(html.contains("my-vulnerable-package"));
+	}
+
+	#[test]
+	fn summary_counts_are_correct() {
+		let risks = vec![
+			make_risk("pkg-a", SeverityLevel::Critical),
+			make_risk("pkg-b", SeverityLevel::High),
+			make_safe_risk("pkg-c"),
+		];
+		let html = HtmlReporter::render(&risks);
+		assert!(html.contains(">1<") || html.contains("stat-value\">1"));
+		assert!(html.contains("3"));
+	}
+
+	#[test]
+	fn empty_risks_renders_without_panic() {
+		let html = HtmlReporter::render(&[]);
+		assert!(html.contains("<!DOCTYPE html>"));
+		assert!(html.contains(">0<") || html.contains("stat-value\">0"));
+	}
+
+	#[test]
+	fn severity_badges_are_present() {
+		let risks = vec![
+			make_risk("critical-pkg", SeverityLevel::Critical),
+			make_risk("high-pkg", SeverityLevel::High),
+		];
+		let html = HtmlReporter::render(&risks);
+		assert!(html.contains("badge-critical"));
+		assert!(html.contains("badge-high"));
+	}
+
+	#[test]
+	fn generates_file_when_output_path_given() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("report.html");
+		let risks = vec![make_risk("lodash", SeverityLevel::High)];
+		HtmlReporter.generate(&risks, Some(&path)).unwrap();
+		let content = std::fs::read_to_string(&path).unwrap();
+		assert!(content.contains("<!DOCTYPE html>"));
+	}
+}
+
 pub struct HtmlReporter;
 
 impl Reporter for HtmlReporter {

@@ -1,0 +1,71 @@
+# Example: OpenSentinel supply chain scan in GitHub Actions
+#
+# Copy this file into your own project at .github/workflows/opensentinel.yml
+# Adjust the opse flags to match your severity policy.
+
+name: Supply chain security scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'   # every Monday at 06:00 UTC
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenSentinel
+        run: |
+          curl -fsSL https://github.com/QueeNFrisk/OpenSentinel/releases/latest/download/opse-linux-x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin
+
+      # Advisory-only scan (no source download) — fast, suitable for every PR
+      - name: Scan dependencies
+        run: |
+          opse scan \
+            --format=json \
+            --output=opensentinel-report.json \
+            --severity=high,critical
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY:  ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload scan report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opensentinel-report
+          path: opensentinel-report.json
+
+      # Generate SBOM for release builds on main
+      - name: Generate CycloneDX SBOM
+        if: github.ref == 'refs/heads/main'
+        run: |
+          opse scan \
+            --format=sbom \
+            --output=sbom.cdx.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY:  ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+# Exit codes:
+#   0 → no risks (or LOW only)    → pipeline passes
+#   1 → MEDIUM risks found        → pipeline passes (adjust below to fail)
+#   2 → HIGH risks found          → pipeline fails
+#   3 → CRITICAL risks found      → pipeline fails
+#
+# To fail on MEDIUM and above, replace --severity=high,critical with --severity=medium,high,critical
