@@ -23,33 +23,10 @@ OpenSentinel scans your full dependency tree — including transitive dependenci
 
 ---
 
-## Demo
+## Screenshot
 
 ```
-┌─ Dependencies (231) ────┬─ lodash@4.17.20  —  CRITICAL (9.1) ───────────────┐
-│ CRITICAL: lodash@4.17   │ [OSV] CVE-2021-23337    CRITICAL  CVSS 9.1        │
-│ HIGH:     axios@0.21    │   Prototype pollution via format string           │
-│ MEDIUM:   express@4.18  │────────────────────────────────────────────────── │
-│ LOW:      debug@4.3     │ [GitHub] GHSA-35jh-r3h4  HIGH                     │
-│ SAFE:     react@18.0    │   ReDoS via string trimming                       │
-│           ...           │────────────────────────────────────────────────── │
-│                         │ [CODE] Credential access pattern  92% conf.       │
-│                         │   src/utils.js:87                                 │
-│                         ├─ Vulnerability Detail ────────────────────────────│
-│                         │  [OSV] CVE-2021-23337  CRITICAL  CVSS 9.1         │
-│                         │                                                   │
-│                         │  Description:                                     │
-│                         │    Prototype pollution in lodash's merge,         │
-│                         │    mergeWith, defaultsDeep, and zipObjectDeep.    │
-│                         │                                                   │
-│                         │  Affected:  <4.17.21                              │
-│                         │  Fixed in:  >=4.17.21                             │
-│                         │  Published: 2021-02-15                            │
-│                         │  References:                                      │
-│                         │    • https://nvd.nist.gov/vuln/detail/CVE-2021-...│
-└─────────────────────────┴────────────────────────────────────────────────── ┘
-[↑↓] Navigate vulns  [Enter] Detail  [C] Copy  [E] Export  [Tab] Switch  [Q] Quit
-Packages: 231  |  Critical: 1  High: 3  Medium: 7  Low: 12  Safe: 208
+![alt text](image.png)
 ```
 
 ---
