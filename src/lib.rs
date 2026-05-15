@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod community;
 pub mod config;
 pub mod parser;
 pub mod analyzer;

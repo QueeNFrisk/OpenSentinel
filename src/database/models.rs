@@ -123,3 +123,41 @@ pub struct RiskScore {
 	pub recommendation: String,
 	pub scored_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
+#[sqlx(type_name = "version_change_type", rename_all = "snake_case")]
+pub enum VersionChangeType {
+	FilesRemoved,
+	LicenseChanged,
+	ManifestChanged,
+	DependenciesChanged,
+	PermissionsChanged,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct VersionDiff {
+	pub id: Uuid,
+	pub package_id: Uuid,
+	pub from_version: String,
+	pub to_version: String,
+	pub change_type: VersionChangeType,
+	pub description: String,
+	pub severity: SeverityLevel,
+	pub detected_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct MaintainerMetrics {
+	pub id: Uuid,
+	pub package_name: String,
+	pub ecosystem: String,
+	pub repo_url: Option<String>,
+	pub days_since_push: i32,
+	pub releases_last_year: i32,
+	pub open_issues: i32,
+	pub stars: i32,
+	pub forks: i32,
+	pub contributor_count: i32,
+	pub reputation_score: f32,
+	pub fetched_at: DateTime<Utc>,
+}
