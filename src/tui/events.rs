@@ -80,6 +80,7 @@ impl EventHandler {
 				state.group_by_severity = !state.group_by_severity;
 				state.selected_index = 0;
 			}
+			KeyCode::Char('i') | KeyCode::Char('I') => state.toggle_ignored(),
 			KeyCode::Char('q') | KeyCode::Char('Q') => app.should_quit = true,
 			KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => app.should_quit = true,
 			KeyCode::Esc => {
@@ -142,6 +143,7 @@ impl EventHandler {
 				state.group_by_severity = !state.group_by_severity;
 				state.selected_index = 0;
 			}
+			KeyCode::Char('i') => state.toggle_ignored(),
 			_ => {}
 		}
 	}

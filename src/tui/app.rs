@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -63,6 +64,8 @@ pub struct ResultsState {
 	pub search_mode: bool,
 	pub show_direct_only: bool,
 	pub group_by_severity: bool,
+	pub show_ignored: bool,
+	pub ignored: HashSet<String>,
 	pub selected_vuln: usize,
 	pub detail_scroll: usize,
 	pub status_message: Option<String>,
@@ -79,6 +82,8 @@ impl ResultsState {
 			search_mode: false,
 			show_direct_only: false,
 			group_by_severity: false,
+			show_ignored: false,
+			ignored: HashSet::new(),
 			selected_vuln: 0,
 			detail_scroll: 0,
 			status_message: None,
@@ -104,6 +109,7 @@ impl ResultsState {
 			.risks
 			.iter()
 			.filter(|r| {
+				if !self.show_ignored && self.ignored.contains(&r.package_name) { return false; }
 				if self.show_direct_only && !r.is_direct { return false; }
 				if !self.search_query.is_empty() {
 					return r.package_name.to_lowercase().contains(&self.search_query.to_lowercase());
@@ -118,6 +124,24 @@ impl ResultsState {
 			});
 		}
 		filtered
+	}
+
+	pub fn toggle_ignored(&mut self) {
+		let Some(risk) = self.selected_risk() else { return };
+		let name = risk.package_name.clone();
+		if self.ignored.contains(&name) {
+			self.ignored.remove(&name);
+			self.set_status(format!("Restored: {name}"));
+		} else {
+			self.ignored.insert(name.clone());
+			self.set_status(format!("Ignored: {name}"));
+			let count = self.filtered_risks().len();
+			if self.selected_index >= count && self.selected_index > 0 {
+				self.selected_index -= 1;
+			}
+		}
+		self.selected_vuln = 0;
+		self.detail_scroll = 0;
 	}
 
 	pub fn selected_risk(&self) -> Option<&PackageRisk> {
@@ -223,7 +247,11 @@ impl TuiApp {
 		let config = config.clone();
 		let handle = tokio::spawn(async move {
 			let reporter = ChannelReporter::new(tx.clone());
-			let orchestrator = ScanOrchestrator::new(&config, &project_path);
+			let base = ScanOrchestrator::new(&config, &project_path);
+			let orchestrator = match crate::database::pool::DatabasePool::connect(&config.database).await {
+				Ok(db) => base.with_db(db.inner().clone()),
+				Err(_) => base,
+			};
 			match orchestrator.run(&reporter).await {
 				Ok(risks) => { tx.send(ScanEvent::Done(risks)).ok(); }
 				Err(e)    => { tx.send(ScanEvent::Error(e.to_string())).ok(); }

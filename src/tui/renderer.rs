@@ -215,7 +215,7 @@ impl Renderer {
 				super::app::ActivePanel::Left => Line::from(vec![
 					Span::styled("[↑↓] Navigate", Theme::dim()),
 					Span::styled("  [Enter] View vulns", Theme::dim()),
-					Span::styled("  [Tab] Switch", Theme::dim()),
+					Span::styled("  [I] Ignore", Theme::dim()),
 					Span::styled("  [/] Search", Theme::dim()),
 					Span::styled("  [D] Direct only", Theme::dim()),
 					Span::styled("  [G] Group", Theme::dim()),
