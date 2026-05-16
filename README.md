@@ -44,6 +44,8 @@ OpenSentinel scans your full dependency tree — including transitive dependenci
 
 ### From source
 
+(I Recommend fork it first)
+
 ```bash
 git clone https://github.com/yourname/opensentinel
 cd opensentinel
