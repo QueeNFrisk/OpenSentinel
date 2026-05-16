@@ -61,14 +61,20 @@ opse scan
 # Scan a specific project
 opse scan ~/projects/my-app
 
+# Scan only Node.js packages
+opse scan --ecosystem nodejs
+
 # Non-interactive — print JSON to stdout
-opse scan --format=json
+opse scan --format json
 
 # Save CycloneDX SBOM to file
-opse scan --format=sbom --output=sbom.cdx.json
+opse scan --format sbom --output sbom.cdx.json
 
 # Only report high and critical issues
-opse scan --severity=high,critical
+opse scan --severity high,critical
+
+# Skip dev dependencies
+opse scan --exclude devDependencies
 ```
 
 ### First-time setup
@@ -78,12 +84,29 @@ opse scan --severity=high,critical
 opse init
 
 # Follow the interactive wizard to configure:
-#   - Database connection (PostgreSQL / SQLite / MySQL)
+#   - Database connection (PostgreSQL with URL or individual fields)
 #   - Source analysis settings
 #   - API credentials
 #   - Parallelism tuning
 #   - Output preferences
 ```
+
+### Scan history
+
+Each scan is saved to the database automatically. You can review previous results without re-scanning:
+
+```bash
+# List scans for the current project
+opse history
+
+# List scans across all projects
+opse history --all
+
+# Re-open a previous scan in the TUI
+opse view 3f2a1b4c
+```
+
+The scan ID is displayed at the end of every scan. Use the first 8 characters or the full UUID.
 
 ---
 
@@ -105,6 +128,8 @@ opse init
 
 Switch between `arrows` (default) and `vim` (`hjkl`) keybindings via `opse init` or the `--keybindings` flag.
 
+The scanning screen shows real-time database connection status. If the database is unreachable, OpenSentinel continues without cache and scan results are not persisted.
+
 ### Panel layout
 
 | Panel | Content |
@@ -118,13 +143,13 @@ Switch between `arrows` (default) and `vim` (`hjkl`) keybindings via `opse init`
 ## Output Formats
 
 ```bash
-opse scan --format=sbom    # CycloneDX (default for --output)
-opse scan --format=json    # Raw JSON — full risk data
-opse scan --format=table   # ASCII table in terminal
-opse scan --format=html    # HTML report
+opse scan --format sbom    # CycloneDX (default for --output)
+opse scan --format json    # Raw JSON — full risk data
+opse scan --format table   # ASCII table in terminal
+opse scan --format html    # HTML report
 
 # Re-render a saved JSON report into another format
-opse report --source=scan.json --format=html --output=report.html
+opse report --source scan.json --format html --output report.html
 ```
 
 ---
@@ -254,12 +279,13 @@ OpenSentinel returns structured exit codes suitable for use in pipelines:
 - name: Security scan
   run: |
     opse scan \
-      --format=json \
-      --output=opensentinel-report.json \
-      --severity=high,critical
+      --format json \
+      --output opensentinel-report.json \
+      --severity high,critical
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+    DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 - name: Upload SBOM
   uses: actions/upload-artifact@v4
@@ -271,7 +297,7 @@ OpenSentinel returns structured exit codes suitable for use in pipelines:
 ### Fail on critical only
 
 ```bash
-opse scan --format=json --severity=critical --output=/dev/null
+opse scan --format json --severity critical --output /dev/null
 # exits 0 unless CRITICAL found
 ```
 
