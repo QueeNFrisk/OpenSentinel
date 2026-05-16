@@ -34,9 +34,11 @@ OpenSentinel scans your full dependency tree — including transitive dependenci
 ### Prerequisites
 
 - Rust 1.75+
-- PostgreSQL (for advisory caching) — or set `engine: "sqlite"` in config
+- PostgreSQL (optional, for advisory caching) — the scanner works without a database, results are fetched live each run
 - `GITHUB_TOKEN` — recommended for higher GitHub Advisory API rate limits
 - `NVD_API_KEY` — recommended to avoid NVD rate limiting
+
+The scanning screen shows database connection status in real time. If the database is unreachable OpenSentinel continues without cache.
 
 ### From source
 
@@ -93,6 +95,7 @@ opse init
 | `Enter` | Open vulnerability list for selected package; then open detail |
 | `Esc` | Go back one panel |
 | `Tab` | Cycle between panels |
+| `I` | Ignore / restore selected package (dimmed at bottom of list) |
 | `/` | Search packages by name |
 | `D` | Toggle direct dependencies only |
 | `G` | Group by severity |
@@ -139,34 +142,55 @@ Config is read from `./opensentinel.json` (project-level) or `~/.opensentinel/co
     "port": 5432,
     "database": "opensentinel",
     "user": "postgres",
-    "password": "${DB_PASSWORD}"
+    "password": "${DB_PASSWORD}",
+    "ssl": false,
+    "poolSize": 10
   },
   "sourceAnalysis": {
     "enabled": true,
     "downloadSource": false,
-    "analyzeAST": true,
+    "analyzeAst": true,
     "cacheDir": ".opensentinel/cache",
-    "cacheTTL": 604800
+    "cacheTtl": 604800,
+    "maxSourceSizeMb": 100
   },
   "parallelism": {
     "packageConcurrency": 4,
     "apiConcurrency": 3,
-    "osv":    { "limit": 10, "delay": 100 },
-    "github": { "limit": 5,  "delay": 200 },
-    "nvd":    { "limit": 5,  "delay": 200 }
+    "osv":    { "limit": 10, "delayMs": 100 },
+    "github": { "limit": 5,  "delayMs": 200 },
+    "nvd":    { "limit": 5,  "delayMs": 200 },
+    "mitre":  { "limit": 3,  "delayMs": 300 }
   },
   "credentials": {
-    "github_token": "${GITHUB_TOKEN}",
-    "nvd_api_key":  "${NVD_API_KEY}",
-    "storage": "env"
+    "githubToken": "${GITHUB_TOKEN}",
+    "nvdApiKey":   "${NVD_API_KEY}",
+    "storage": "env",
+    "keyringSupport": false
   },
   "ecosystems": ["nodejs", "bun"],
   "severity": ["high", "critical"],
-  "keybindings": "arrows"
+  "excludeDevDeps": false,
+  "keybindings": "arrows",
+  "outputFormat": "sbom"
 }
 ```
 
 > Credential values starting with `${...}` are read from environment variables at runtime. Set `storage: "keyring"` to use the OS keyring instead.
+
+### Cloud databases (Neon, Vercel, Railway)
+
+For managed PostgreSQL providers that require a full connection string (including SNI parameters), use the `url` field instead of individual connection fields:
+
+```json
+{
+  "database": {
+    "url": "${DATABASE_URL}"
+  }
+}
+```
+
+The `url` value supports the same `${ENV_VAR}` syntax. When `url` is set it takes precedence over `host`, `port`, `user`, and `password`. SSL is enforced automatically for non-localhost hosts even when using individual fields.
 
 ### Source analysis
 

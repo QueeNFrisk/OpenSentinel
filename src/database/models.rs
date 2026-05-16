@@ -108,6 +108,7 @@ pub struct ScanResult {
 	pub low_count: i32,
 	pub safe_count: i32,
 	pub scanned_at: DateTime<Utc>,
+	pub results_json: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

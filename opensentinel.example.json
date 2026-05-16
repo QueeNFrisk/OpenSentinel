@@ -1,6 +1,7 @@
 {
   "version": "1.0",
   "database": {
+    "_comment": "Cloud DB (Neon/Vercel/Railway): replace this entire block with { \"url\": \"${DATABASE_URL}\" }",
     "engine": "postgresql",
     "host": "localhost",
     "port": 5432,

@@ -55,14 +55,19 @@ impl Renderer {
 	}
 
 	fn draw_scanning(f: &mut Frame, state: &super::app::ScanningState) {
+		use super::app::DbStatus;
+
 		let area = f.size();
 		f.render_widget(Block::default().style(Style::default().bg(Theme::BG)), area);
+
+		let log_lines = state.log.len() as u16;
+		let box_height = 8 + 1 + log_lines.max(1) + 2; // header + progress + log + padding
 
 		let vchunks = Layout::default()
 			.direction(Direction::Vertical)
 			.constraints([
-				Constraint::Percentage(35),
-				Constraint::Length(10),
+				Constraint::Percentage(20),
+				Constraint::Length(box_height),
 				Constraint::Min(0),
 			])
 			.split(area);
@@ -70,18 +75,17 @@ impl Renderer {
 		let hchunks = Layout::default()
 			.direction(Direction::Horizontal)
 			.constraints([
-				Constraint::Percentage(20),
-				Constraint::Percentage(60),
-				Constraint::Percentage(20),
+				Constraint::Percentage(10),
+				Constraint::Percentage(80),
+				Constraint::Percentage(10),
 			])
 			.split(vchunks[1]);
 
 		let box_area = hchunks[1];
-
 		let spinner = SPINNER[(state.spinner_tick as usize) % SPINNER.len()];
 
 		let outer = Block::default()
-			.title(" OpenSentinel — Scanning ")
+			.title(" OpenSentinel ")
 			.title_alignment(Alignment::Center)
 			.borders(Borders::ALL)
 			.border_type(BorderType::Rounded)
@@ -95,47 +99,98 @@ impl Renderer {
 			.direction(Direction::Vertical)
 			.margin(1)
 			.constraints([
-				Constraint::Length(1), // spinner + package name
+				Constraint::Length(1), // spinner + current package
 				Constraint::Length(1), // blank
-				Constraint::Length(1), // gauge label
-				Constraint::Length(1), // gauge
+				Constraint::Length(1), // gauge label (N/M packages)
+				Constraint::Length(1), // gauge bar
 				Constraint::Length(1), // blank
-				Constraint::Length(1), // hint
+				Constraint::Length(1), // db status
+				Constraint::Length(1), // separator
+				Constraint::Min(0),    // log lines
+				Constraint::Length(1), // cancel hint
 			])
 			.split(inner);
 
+		// ── Spinner + current package ──────────────────────────────────
 		let pkg = if state.current_package.is_empty() {
-			"Resolving dependencies…".to_string()
+			"Resolving dependency tree…".to_string()
 		} else {
 			format!("Scanning  {}", state.current_package)
 		};
 		f.render_widget(
 			Paragraph::new(Line::from(vec![
-				Span::styled(format!("{spinner} "), Style::default().fg(Theme::ACCENT)),
-				Span::styled(pkg, Style::default().fg(Theme::TEXT_PRIMARY)),
+				Span::styled(format!("{spinner} "), Theme::accent()),
+				Span::styled(pkg, Theme::base()),
 			])),
 			rows[0],
 		);
 
+		// ── Progress label ─────────────────────────────────────────────
 		let label = if state.total > 0 {
 			format!("{} / {} packages", state.scanned, state.total)
 		} else {
-			String::new()
+			"Waiting…".to_string()
 		};
-		f.render_widget(
-			Paragraph::new(label).style(Theme::secondary()),
-			rows[2],
-		);
+		f.render_widget(Paragraph::new(label).style(Theme::secondary()), rows[2]);
 
+		// ── Gauge ──────────────────────────────────────────────────────
 		let gauge = Gauge::default()
 			.gauge_style(Style::default().fg(Theme::ACCENT).bg(Theme::BG_SELECTED))
 			.percent(state.progress_pct())
 			.label("");
 		f.render_widget(gauge, rows[3]);
 
+		// ── Database status ────────────────────────────────────────────
+		let db_line = match &state.db_status {
+			DbStatus::Pending => Line::from(vec![
+				Span::styled("  ○ ", Theme::dim()),
+				Span::styled("Database", Theme::dim()),
+				Span::styled("  pending", Theme::dim()),
+			]),
+			DbStatus::Connecting => Line::from(vec![
+				Span::styled(format!("  {spinner} "), Theme::accent()),
+				Span::styled("Database", Theme::secondary()),
+				Span::styled("  connecting…", Theme::dim()),
+			]),
+			DbStatus::Connected(addr) => Line::from(vec![
+				Span::styled("  ✓ ", Style::default().fg(Theme::SEVERITY_SAFE)),
+				Span::styled("Database", Theme::secondary()),
+				Span::styled(format!("  {addr}"), Theme::dim()),
+			]),
+			DbStatus::Failed(reason) => Line::from(vec![
+				Span::styled("  ✗ ", Theme::dim()),
+				Span::styled("Database", Theme::dim()),
+				Span::styled(format!("  offline  ·  {reason}"), Theme::dim()),
+			]),
+		};
+		f.render_widget(Paragraph::new(db_line), rows[5]);
+
+		// ── Separator ──────────────────────────────────────────────────
 		f.render_widget(
-			Paragraph::new("  Q / Esc  Cancel").style(Theme::dim()),
-			rows[5],
+			Paragraph::new(Span::styled(
+				"─".repeat(box_area.width.saturating_sub(4) as usize),
+				Theme::dim(),
+			)),
+			rows[6],
+		);
+
+		// ── Log lines ──────────────────────────────────────────────────
+		let log_text: Vec<Line> = state.log
+			.iter()
+			.map(|msg| Line::from(vec![
+				Span::styled("  → ", Theme::dim()),
+				Span::styled(msg.clone(), Theme::secondary()),
+			]))
+			.collect();
+		f.render_widget(
+			Paragraph::new(log_text).style(Theme::base()),
+			rows[7],
+		);
+
+		// ── Cancel hint ────────────────────────────────────────────────
+		f.render_widget(
+			Paragraph::new(Span::styled("  Q / Esc  Cancel", Theme::dim())),
+			rows[8],
 		);
 	}
 
@@ -191,41 +246,33 @@ impl Renderer {
 			.constraints([Constraint::Length(1), Constraint::Length(1)])
 			.split(area);
 
+		let sep = Span::styled("  ", Theme::dim());
+		let k = |s: &'static str| Span::styled(s, Theme::dim());
+
 		let keybinds = if let Some(msg) = &state.status_message {
 			Line::from(Span::styled(format!("  {msg}"), Theme::accent()))
 		} else {
 			match state.active_panel {
 				super::app::ActivePanel::Right => Line::from(vec![
-					Span::styled("[↑↓] Navigate vulns", Theme::dim()),
-					Span::styled("  [Enter] Detail", Theme::dim()),
-					Span::styled("  [C] Copy", Theme::dim()),
-					Span::styled("  [E] Export", Theme::dim()),
-					Span::styled("  [Tab] Switch", Theme::dim()),
-					Span::styled("  [Esc] Back", Theme::dim()),
-					Span::styled("  [Q] Quit", Theme::dim()),
+					k("[↑↓] Nav"), sep.clone(), k("[↵] Detail"), sep.clone(),
+					k("[C] Copy"), sep.clone(), k("[E] Export"), sep.clone(),
+					k("[Tab]"), sep.clone(), k("[Esc] Back"), sep.clone(), k("[Q] Quit"),
 				]),
 				super::app::ActivePanel::Bottom => Line::from(vec![
-					Span::styled("[↑↓] Scroll", Theme::dim()),
-					Span::styled("  [C] Copy", Theme::dim()),
-					Span::styled("  [E] Export", Theme::dim()),
-					Span::styled("  [Tab] Switch", Theme::dim()),
-					Span::styled("  [Esc] Back", Theme::dim()),
-					Span::styled("  [Q] Quit", Theme::dim()),
+					k("[↑↓] Scroll"), sep.clone(), k("[C] Copy"), sep.clone(),
+					k("[E] Export"), sep.clone(), k("[Tab]"), sep.clone(),
+					k("[Esc] Back"), sep.clone(), k("[Q] Quit"),
 				]),
 				super::app::ActivePanel::Left => Line::from(vec![
-					Span::styled("[↑↓] Navigate", Theme::dim()),
-					Span::styled("  [Enter] View vulns", Theme::dim()),
-					Span::styled("  [I] Ignore", Theme::dim()),
-					Span::styled("  [/] Search", Theme::dim()),
-					Span::styled("  [D] Direct only", Theme::dim()),
-					Span::styled("  [G] Group", Theme::dim()),
-					Span::styled("  [E] Export", Theme::dim()),
-					Span::styled("  [Q] Quit", Theme::dim()),
+					k("[↑↓] Nav"), sep.clone(), k("[↵] Open"), sep.clone(),
+					k("[I] Ignore"), sep.clone(), k("[/] Search"), sep.clone(),
+					k("[D] Direct"), sep.clone(), k("[G] Group"), sep.clone(),
+					k("[E] Export"), sep.clone(), k("[Q] Quit"),
 				]),
 			}
 		};
 
-		let stat_line = Line::from(vec![
+		let mut stat_spans = vec![
 			Span::styled(format!("Packages: {}", stats.total), Theme::secondary()),
 			Span::styled("  |  ", Theme::dim()),
 			Span::styled(format!("Critical: {}", stats.critical), Theme::severity_style("CRITICAL")),
@@ -237,7 +284,12 @@ impl Renderer {
 			Span::styled(format!("Low: {}", stats.low), Theme::severity_style("LOW")),
 			Span::styled("  ", Theme::dim()),
 			Span::styled(format!("Safe: {}", stats.safe), Theme::severity_style("SAFE")),
-		]);
+		];
+		if stats.ignored > 0 {
+			stat_spans.push(Span::styled("  ", Theme::dim()));
+			stat_spans.push(Span::styled(format!("Ignored: {}", stats.ignored), Theme::dim()));
+		}
+		let stat_line = Line::from(stat_spans);
 
 		f.render_widget(Paragraph::new(keybinds).style(Theme::base()), layout[0]);
 		f.render_widget(Paragraph::new(stat_line).style(Theme::base()), layout[1]);

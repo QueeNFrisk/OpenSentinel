@@ -71,4 +71,19 @@ impl Theme {
 	pub fn accent() -> Style {
 		Style::default().fg(Self::ACCENT)
 	}
+
+	pub fn ignored() -> Style {
+		Style::default().fg(Self::TEXT_DIM).add_modifier(Modifier::DIM)
+	}
+
+	pub fn score_bar(label: &str) -> Style {
+		let color = match label {
+			"CRITICAL" => Self::SEVERITY_CRITICAL,
+			"HIGH"     => Self::SEVERITY_HIGH,
+			"MEDIUM"   => Self::SEVERITY_MEDIUM,
+			"LOW"      => Self::SEVERITY_LOW,
+			_          => Self::SEVERITY_SAFE,
+		};
+		Style::default().fg(color)
+	}
 }

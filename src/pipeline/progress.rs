@@ -8,12 +8,17 @@ pub trait ScanReporter: Send + Sync {
 	fn tick_advisory(&self);
 	fn tick_analysis(&self);
 	fn finish(&self);
+	fn log(&self, _msg: &str) {}
 }
 
 #[derive(Debug)]
 pub enum ScanEvent {
 	Total(u64),
 	Package(String),
+	Log(String),
+	DbConnecting,
+	DbConnected(String),
+	DbFailed(String),
 	Done(Vec<crate::scoring::models::PackageRisk>),
 	Error(String),
 }
@@ -105,6 +110,10 @@ impl ScanReporter for ChannelReporter {
 
 	fn tick_package(&self, name: &str) {
 		self.tx.send(ScanEvent::Package(name.to_string())).ok();
+	}
+
+	fn log(&self, msg: &str) {
+		self.tx.send(ScanEvent::Log(msg.to_string())).ok();
 	}
 
 	fn tick_advisory(&self) {}

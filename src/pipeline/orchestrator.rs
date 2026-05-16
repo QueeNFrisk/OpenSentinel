@@ -31,6 +31,7 @@ pub struct ScanOrchestrator {
 	exclude_dev: bool,
 	no_cache: bool,
 	cache_dir: Option<PathBuf>,
+	ecosystem_override: Option<Vec<String>>,
 }
 
 impl ScanOrchestrator {
@@ -43,6 +44,7 @@ impl ScanOrchestrator {
 			exclude_dev: false,
 			no_cache: false,
 			cache_dir: None,
+			ecosystem_override: None,
 		}
 	}
 
@@ -71,10 +73,18 @@ impl ScanOrchestrator {
 		self
 	}
 
+	pub fn with_ecosystems(mut self, ecosystems: Option<Vec<String>>) -> Self {
+		self.ecosystem_override = ecosystems;
+		self
+	}
+
 	pub async fn run(&self, progress: &dyn ScanReporter) -> Result<Vec<PackageRisk>> {
+		let ecosystems = self.ecosystem_override.as_deref()
+			.unwrap_or(&self.config.ecosystems);
+
 		let trees = DependencyResolver::resolve(
 			&self.project_path,
-			&self.config.ecosystems,
+			ecosystems,
 		)
 		.await?;
 
@@ -91,10 +101,13 @@ impl ScanOrchestrator {
 		let total = all_packages.len() as u64;
 
 		if total == 0 {
+			progress.log("No packages found — check ecosystems config");
 			return Ok(Vec::new());
 		}
 
+		progress.log(&format!("Resolved {total} packages"));
 		progress.set_total(total);
+		progress.log("Fetching advisories  ·  OSV / GitHub / NVD");
 
 		let credentials = CredentialResolver::resolve_credentials(&self.config.credentials)?;
 		let fetcher = AdvisoryFetcher::new(&credentials, self.config.parallelism.clone());

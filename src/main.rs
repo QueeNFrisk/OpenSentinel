@@ -31,6 +31,8 @@ async fn main() -> Result<()> {
 		Commands::CacheClear => cli::handlers::handle_cache_clear().await?,
 		Commands::Init(opts) => cli::handlers::handle_init(opts).await?,
 		Commands::Community(opts) => cli::handlers::handle_community(opts).await?,
+		Commands::History(opts)   => cli::handlers::handle_history(opts).await?,
+		Commands::View(opts)      => cli::handlers::handle_view(opts).await?,
 	}
 
 	Ok(())

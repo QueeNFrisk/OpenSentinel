@@ -1,8 +1,8 @@
 use ratatui::{
 	layout::Rect,
-	style::Style,
+	style::{Modifier, Style},
 	text::{Line, Span},
-	widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+	widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
 	Frame,
 };
 
@@ -16,9 +16,13 @@ pub struct VulnDetailPanel;
 impl LeftPanel {
 	pub fn render(f: &mut Frame, _app: &TuiApp, state: &ResultsState, area: Rect) {
 		let is_active = state.active_panel == ActivePanel::Left;
+		let filtered = state.filtered_risks();
+		let total = filtered.len();
 
 		let title = if state.search_mode {
-			format!(" Search: {} ", state.search_query)
+			format!(" Search: {}  ", state.search_query)
+		} else if total > 0 {
+			format!(" Dependencies ({}/{}) ", state.selected_index.saturating_add(1).min(total), total)
 		} else {
 			" Dependencies ".to_string()
 		};
@@ -26,17 +30,36 @@ impl LeftPanel {
 		let block = Block::default()
 			.title(title)
 			.borders(Borders::ALL)
+			.border_type(BorderType::Rounded)
 			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
 			.style(Theme::panel());
-
-		let filtered = state.filtered_risks();
 
 		let items: Vec<ListItem> = filtered
 			.iter()
 			.map(|risk| {
-				let label = format!("{}: {}@{}", risk.severity_label(), risk.package_name, risk.package_version);
-				let style = Theme::severity_style(risk.severity_label());
-				ListItem::new(Line::from(Span::styled(label, style)))
+				let is_ignored = state.is_ignored(&risk.package_name);
+				let sev = risk.severity_label();
+
+				let name_style = if is_ignored {
+					Theme::ignored()
+				} else {
+					Theme::severity_style(sev).add_modifier(Modifier::BOLD)
+				};
+				let meta_style = if is_ignored { Theme::ignored() } else { Theme::dim() };
+
+				let prefix = if is_ignored { "~ " } else { "  " };
+				let dep_tag = if risk.is_direct { "direct" } else { "trans " };
+
+				ListItem::new(vec![
+					Line::from(vec![
+						Span::styled(prefix.to_string(), meta_style),
+						Span::styled(risk.package_name.clone(), name_style),
+					]),
+					Line::from(vec![
+						Span::styled(format!("  {:<8} ", sev), if is_ignored { Theme::ignored() } else { Theme::severity_style(sev) }),
+						Span::styled(format!("{:.2}  {} ", risk.final_score, dep_tag), meta_style),
+					]),
+				])
 			})
 			.collect();
 
@@ -46,7 +69,7 @@ impl LeftPanel {
 		let list = List::new(items)
 			.block(block)
 			.highlight_style(Theme::selected())
-			.highlight_symbol("  ");
+			.highlight_symbol("▶ ");
 
 		f.render_stateful_widget(list, area, &mut list_state);
 	}
@@ -81,6 +104,7 @@ impl VulnListPanel {
 		let block = Block::default()
 			.title(title)
 			.borders(Borders::ALL)
+			.border_type(BorderType::Rounded)
 			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
 			.style(Theme::panel());
 
@@ -223,6 +247,7 @@ impl VulnDetailPanel {
 		let block = Block::default()
 			.title(" Vulnerability Detail ")
 			.borders(Borders::ALL)
+			.border_type(BorderType::Rounded)
 			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
 			.style(Theme::panel());
 
@@ -242,12 +267,14 @@ impl VulnDetailPanel {
 		let total = n_adv + n_det + n_ver + n_com;
 
 		if total == 0 {
+			let mut lines = vec![
+				Line::from(""),
+				Line::from(Span::styled("  No vulnerabilities detected", Theme::score_bar("SAFE"))),
+				Line::from(""),
+			];
+			Self::append_package_context(&mut lines, risk);
 			f.render_widget(
-				Paragraph::new(vec![
-					Line::from(""),
-					Line::from(Span::styled("  No vulnerabilities to display", Theme::dim())),
-				])
-				.block(block),
+				Paragraph::new(lines).block(block).wrap(Wrap { trim: true }),
 				area,
 			);
 			return;

@@ -32,7 +32,7 @@ struct Field {
 	label: &'static str,
 	hint:  &'static str,
 	opts:  Vec<Opt>,
-	selected: usize,   
+	selected: usize,
 	custom:   String,
 	secret:   bool,
 }
@@ -65,118 +65,304 @@ impl Field {
 		}
 	}
 
-	fn total_options(&self) -> usize { self.opts.len() + 1 } // +1 for Custom
+	fn total_options(&self) -> usize { self.opts.len() + 1 }
 }
-
 
 enum Row {
 	Header(&'static str),
-	Done(usize),         // completed field — one line with ✓
-	ActiveLabel(usize),  // field currently being edited — header line
-	Opt(usize, usize),   // field_idx, opt_idx — radio option
-	Custom(usize),       // Custom... option
-	Pending(usize),      // not-yet-reached field — dimmed one line
+	Done(usize),
+	ActiveLabel(usize),
+	Opt(usize, usize),
+	Custom(usize),
+	Pending(usize),
 }
 
+// ── Field index layout ────────────────────────────────────────────────────────
+//  0   DB Engine
+//  --- PostgreSQL / MySQL -------------------------------------------------------
+//  1   Connection URL  (skip if SQLite)
+//  2   Host            (skip if SQLite, or if URL is set)
+//  3   Port            (skip if SQLite, or if URL is set)
+//  4   Database name   (skip if SQLite, or if URL is set)
+//  5   User            (skip if SQLite, or if URL is set)
+//  6   Password        (skip if SQLite, or if URL is set)
+//  7   SSL             (skip if not PostgreSQL, or if URL is set)
+//  8   Pool size       (skip if SQLite)
+//  --- SQLite -------------------------------------------------------------------
+//  9   SQLite file path (skip if not SQLite)
+//  --- Source Analysis ----------------------------------------------------------
+// 10   Enable source scan
+// 11   Download source
+// 12   AST analysis
+// 13   Cache TTL
+// 14   Max source size
+//  --- Parallelism --------------------------------------------------------------
+// 15   Package concurrency
+// 16   API concurrency
+// 17   OSV limit
+// 18   OSV delay
+// 19   GitHub limit
+// 20   GitHub delay
+// 21   NVD limit
+// 22   NVD delay
+//  --- Credentials -------------------------------------------------------------
+// 23   GitHub Token
+// 24   NVD API Key
+// 25   Credential storage
+// 26   Keyring support
+//  --- Output & Behavior -------------------------------------------------------
+// 27   Ecosystems
+// 28   Severity filter
+// 29   Exclude dev deps
+// 30   Keybindings
+// 31   Output format
+
 const SECTIONS: &[(&str, &[usize])] = &[
-	("Database",         &[0, 1, 2, 3, 4, 5, 6, 7]),
-	("Source Analysis",  &[8, 9, 10, 11, 12]),
-	("Parallelism",      &[13, 14, 15, 16, 17, 18, 19, 20]),
-	("Credentials",      &[21, 22, 23, 24]),
-	("Output & Behavior",&[25, 26, 27, 28, 29]),
+	("Database",          &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+	("Source Analysis",   &[10, 11, 12, 13, 14]),
+	("Parallelism",       &[15, 16, 17, 18, 19, 20, 21, 22]),
+	("Credentials",       &[23, 24, 25, 26]),
+	("Output & Behavior", &[27, 28, 29, 30, 31]),
 ];
 
 pub struct InitWizard {
-	fields:      Vec<Field>,
-	field_cur:   usize,   
-	opt_cur:     usize,   
-	scroll_row:  usize,
-	confirmed:   bool,
-	cancelled:   bool,
+	fields:     Vec<Field>,
+	field_cur:  usize,
+	opt_cur:    usize,
+	scroll_row: usize,
+	confirmed:  bool,
+	cancelled:  bool,
 }
 
 impl InitWizard {
 	pub fn new() -> Self {
 		let fields = vec![
+			// 0 ── DB Engine
 			Field::new("DB Engine", "Database backend to connect to",
-				vec![Opt::v("PostgreSQL","postgresql"), Opt::v("SQLite","sqlite"), Opt::v("MySQL","mysql")]),
+				vec![
+					Opt::v("PostgreSQL", "postgresql"),
+					Opt::v("SQLite",     "sqlite"),
+					Opt::v("MySQL",      "mysql"),
+				]),
+			// 1 ── Connection URL (PostgreSQL / MySQL)
+			Field::new("Connection URL",
+				"Full connection string for this database.\n\
+				 Cloud providers (Neon, Vercel, Railway, PlanetScale):\n\
+				 paste the URL they give you here.\n\
+				 Supports ${ENV_VAR} syntax — recommended:\n\
+				 ${DATABASE_URL}\n\
+				 Leave on '(none)' to configure fields individually below.",
+				vec![Opt::v("(none) — configure fields below", "")]),
+			// 2 ── Host
 			Field::new("Host", "Hostname or IP of your database server",
-				vec![Opt::same("localhost"), Opt::same("127.0.0.1"), Opt::v("Cloud / Remote","db.example.com")]),
+				vec![
+					Opt::same("localhost"),
+					Opt::same("127.0.0.1"),
+					Opt::v("Cloud / Remote", "db.example.com"),
+				]),
+			// 3 ── Port
 			Field::new("Port", "Database port",
-				vec![Opt::v("5432  (PostgreSQL default)","5432"), Opt::v("3306  (MySQL default)","3306"), Opt::v("5433  (alt)","5433")]),
+				vec![
+					Opt::v("5432  (PostgreSQL default)", "5432"),
+					Opt::v("3306  (MySQL default)",      "3306"),
+					Opt::v("5433  (alt)",                "5433"),
+				]),
+			// 4 ── Database name
 			Field::new("Database name", "Name of the database to use",
-				vec![Opt::same("opensentinel"), Opt::same("opensentinel_dev"), Opt::same("security")]),
+				vec![
+					Opt::same("opensentinel"),
+					Opt::same("opensentinel_dev"),
+					Opt::same("security"),
+				]),
+			// 5 ── User
 			Field::new("User", "Database user",
-				vec![Opt::same("postgres"), Opt::same("root"), Opt::same("opensentinel"), Opt::same("admin")]),
-			Field::secret("Password", "Leave as ${DB_PASSWORD} to read from environment variable"),
+				vec![
+					Opt::same("postgres"),
+					Opt::same("root"),
+					Opt::same("opensentinel"),
+					Opt::same("admin"),
+				]),
+			// 6 ── Password
+			Field::secret("Password",
+				"Database password.\n\
+				 Leave as ${DB_PASSWORD} to read from the environment variable.\n\
+				 This field is skipped when a Connection URL is set above."),
+			// 7 ── SSL
 			Field::new("SSL", "Require SSL for database connection",
-				vec![Opt::v("No  — local / internal network","false"), Opt::v("Yes — production / cloud","true")]),
+				vec![
+					Opt::v("No  — local / internal network", "false"),
+					Opt::v("Yes — production / cloud",       "true"),
+				]),
+			// 8 ── Pool size
 			Field::new("Pool size", "Max simultaneous database connections",
 				vec![Opt::same("5"), Opt::same("10"), Opt::same("20"), Opt::same("50")]),
+			// 9 ── SQLite file path
+			Field::new("SQLite file path",
+				"Path to the SQLite database file.\n\
+				 The file will be created if it does not exist.\n\
+				 Use a relative path (./opensentinel.db) or absolute.",
+				vec![
+					Opt::v("opensentinel.db  (current directory)",  "opensentinel.db"),
+					Opt::v("~/.opensentinel/data.db  (user home)",  "~/.opensentinel/data.db"),
+				]),
+			// 10 ── Enable source scan
 			Field::new("Enable source scan", "Scan actual source code of packages",
-				vec![Opt::v("Yes","true"), Opt::v("No","false")]),
-			Field::new("Download source", "Fetch package tarballs to scan for malicious code.\nRequired to see Code Snippets in the TUI.",
-				vec![Opt::v("Yes — full analysis (slower)","true"), Opt::v("No — advisories only (faster)","false")]),
+				vec![Opt::v("Yes", "true"), Opt::v("No", "false")]),
+			// 11 ── Download source
+			Field::new("Download source",
+				"Fetch package tarballs to scan for malicious code.\nRequired to see Code Snippets in the TUI.",
+				vec![
+					Opt::v("Yes — full analysis (slower)",    "true"),
+					Opt::v("No — advisories only (faster)", "false"),
+				]),
+			// 12 ── AST analysis
 			Field::new("AST analysis", "Deep Tree-sitter analysis of JS/TS code",
-				vec![Opt::v("Yes — detect obfuscation and hidden patterns","true"), Opt::v("No — regex patterns only","false")]),
+				vec![
+					Opt::v("Yes — detect obfuscation and hidden patterns", "true"),
+					Opt::v("No — regex patterns only",                     "false"),
+				]),
+			// 13 ── Cache TTL
 			Field::new("Cache TTL", "How long to keep cached source tarballs",
-				vec![Opt::v("1 day   (86400)","86400"), Opt::v("7 days  (604800)","604800"), Opt::v("30 days (2592000)","2592000")]),
+				vec![
+					Opt::v("1 day   (86400)",    "86400"),
+					Opt::v("7 days  (604800)",   "604800"),
+					Opt::v("30 days (2592000)", "2592000"),
+				]),
+			// 14 ── Max source size
 			Field::new("Max source size", "Maximum tarball size to download (MB)",
 				vec![Opt::same("50"), Opt::same("100"), Opt::same("250"), Opt::same("500")]),
+			// 15 ── Package concurrency
 			Field::new("Package concurrency", "Packages analyzed in parallel",
 				vec![Opt::same("2"), Opt::same("4"), Opt::same("8"), Opt::same("16")]),
+			// 16 ── API concurrency
 			Field::new("API concurrency", "Simultaneous advisory API requests",
 				vec![Opt::same("2"), Opt::same("3"), Opt::same("5")]),
+			// 17 ── OSV limit
 			Field::new("OSV limit", "Max requests per OSV batch",
 				vec![Opt::same("5"), Opt::same("10"), Opt::same("20")]),
+			// 18 ── OSV delay
 			Field::new("OSV delay (ms)", "Pause between OSV batches",
 				vec![Opt::same("50"), Opt::same("100"), Opt::same("250")]),
+			// 19 ── GitHub limit
 			Field::new("GitHub limit", "Max requests per GitHub Advisory batch",
 				vec![Opt::same("3"), Opt::same("5"), Opt::same("10")]),
+			// 20 ── GitHub delay
 			Field::new("GitHub delay (ms)", "Pause between GitHub batches",
 				vec![Opt::same("100"), Opt::same("200"), Opt::same("500")]),
+			// 21 ── NVD limit
 			Field::new("NVD limit", "Max requests per NVD batch",
 				vec![Opt::same("3"), Opt::same("5"), Opt::same("10")]),
+			// 22 ── NVD delay
 			Field::new("NVD delay (ms)", "Pause between NVD batches",
 				vec![Opt::same("100"), Opt::same("200"), Opt::same("500")]),
-			Field::secret("GitHub Token", "Personal access token for GitHub Advisory API.\nUse ${GITHUB_TOKEN} to read from environment."),
-			Field::secret("NVD API Key", "API key for NVD CVE database (optional but recommended).\nUse ${NVD_API_KEY} to read from environment."),
+			// 23 ── GitHub Token
+			Field::secret("GitHub Token",
+				"Personal access token for GitHub Advisory API.\nUse ${GITHUB_TOKEN} to read from environment."),
+			// 24 ── NVD API Key
+			Field::secret("NVD API Key",
+				"API key for NVD CVE database (optional but recommended).\nUse ${NVD_API_KEY} to read from environment."),
+			// 25 ── Credential storage
 			Field::new("Credential storage", "Where to read credential values from",
-				vec![Opt::v("env      — environment variables (recommended)","env"),
-				     Opt::v("file     — plain config file","file"),
-				     Opt::v("keyring  — OS keyring","keyring")]),
+				vec![
+					Opt::v("env      — environment variables (recommended)", "env"),
+					Opt::v("file     — plain config file",                   "file"),
+					Opt::v("keyring  — OS keyring",                          "keyring"),
+				]),
+			// 26 ── Keyring support
 			Field::new("Keyring support", "Use OS keyring for secure credential storage",
-				vec![Opt::v("No","false"), Opt::v("Yes","true")]),
+				vec![Opt::v("No", "false"), Opt::v("Yes", "true")]),
+			// 27 ── Ecosystems
 			Field::new("Ecosystems", "Which package managers to scan",
-				vec![Opt::v("Node.js + Bun","nodejs,bun"), Opt::v("Node.js only","nodejs"), Opt::v("Bun only","bun")]),
+				vec![
+					Opt::v("Node.js + Bun", "nodejs,bun"),
+					Opt::v("Node.js only",  "nodejs"),
+					Opt::v("Bun only",      "bun"),
+				]),
+			// 28 ── Severity filter
 			Field::new("Severity filter", "Only report packages at or above this level",
-				vec![Opt::v("high + critical only","high,critical"),
-				     Opt::v("medium, high, critical","medium,high,critical"),
-				     Opt::v("all severities","low,medium,high,critical"),
-				     Opt::v("critical only","critical")]),
+				vec![
+					Opt::v("high + critical only",        "high,critical"),
+					Opt::v("medium, high, critical",      "medium,high,critical"),
+					Opt::v("all severities",              "low,medium,high,critical"),
+					Opt::v("critical only",               "critical"),
+				]),
+			// 29 ── Exclude dev deps
 			Field::new("Exclude dev deps", "Skip devDependencies during scan",
-				vec![Opt::v("No  — scan everything","false"), Opt::v("Yes — production deps only","true")]),
+				vec![
+					Opt::v("No  — scan everything",           "false"),
+					Opt::v("Yes — production deps only",      "true"),
+				]),
+			// 30 ── Keybindings
 			Field::new("Keybindings", "TUI navigation style",
-				vec![Opt::v("Arrow keys","arrows"), Opt::v("Vim  (hjkl)","vim")]),
+				vec![Opt::v("Arrow keys", "arrows"), Opt::v("Vim  (hjkl)", "vim")]),
+			// 31 ── Output format
 			Field::new("Output format", "Default format for non-interactive (opse analyze)",
-				vec![Opt::v("SBOM  — CycloneDX","sbom"), Opt::v("JSON","json"), Opt::v("Table","table"), Opt::v("HTML","html")]),
+				vec![
+					Opt::v("SBOM  — CycloneDX", "sbom"),
+					Opt::v("JSON",               "json"),
+					Opt::v("Table",              "table"),
+					Opt::v("HTML",               "html"),
+				]),
 		];
 
-		let mut w = Self { fields, field_cur: 0, opt_cur: 0, scroll_row: 0, confirmed: false, cancelled: false };
-		w.fields[5].custom  = "${DB_PASSWORD}".to_string();
-		w.fields[5].selected = 0; // custom
-		w.fields[21].custom = "${GITHUB_TOKEN}".to_string();
-		w.fields[21].selected = 0;
-		w.fields[22].custom = "${NVD_API_KEY}".to_string();
-		w.fields[22].selected = 0;
+		let mut w = Self {
+			fields,
+			field_cur: 0,
+			opt_cur: 0,
+			scroll_row: 0,
+			confirmed: false,
+			cancelled: false,
+		};
+		w.fields[6].custom   = "${DB_PASSWORD}".to_string();
+		w.fields[6].selected = 0; // custom active
+		w.fields[23].custom  = "${GITHUB_TOKEN}".to_string();
+		w.fields[23].selected = 0;
+		w.fields[24].custom  = "${NVD_API_KEY}".to_string();
+		w.fields[24].selected = 0;
 		w
+	}
+
+	// Returns true if this field should be hidden based on previous answers.
+	fn should_skip(&self, fi: usize) -> bool {
+		let engine    = self.fields[0].value();
+		let is_sqlite = engine == "sqlite";
+		let url_set   = !self.fields[1].value().is_empty();
+
+		match fi {
+			// URL field: only for PostgreSQL / MySQL
+			1 => is_sqlite,
+			// Individual connection fields: skip for SQLite, or if URL is provided
+			2..=6 => is_sqlite || url_set,
+			// SSL: only relevant for PostgreSQL without a URL
+			7 => engine != "postgresql" || url_set,
+			// Pool size: skip for SQLite
+			8 => is_sqlite,
+			// SQLite file path: only for SQLite
+			9 => !is_sqlite,
+			_ => false,
+		}
+	}
+
+	fn next_visible_field(&self, from: usize) -> Option<usize> {
+		let mut next = from + 1;
+		while next < self.fields.len() {
+			if !self.should_skip(next) { return Some(next); }
+			next += 1;
+		}
+		None
 	}
 
 	fn build_rows(&self) -> Vec<Row> {
 		let mut rows = Vec::new();
 		for &(section, indices) in SECTIONS {
+			let visible_in_section: Vec<usize> = indices.iter()
+				.copied()
+				.filter(|&fi| !self.should_skip(fi))
+				.collect();
+			if visible_in_section.is_empty() { continue; }
+
 			rows.push(Row::Header(section));
-			for &fi in indices {
+			for &fi in &visible_in_section {
 				if fi < self.field_cur {
 					rows.push(Row::Done(fi));
 				} else if fi == self.field_cur {
@@ -197,8 +383,8 @@ impl InitWizard {
 		let target_opt = self.opt_cur;
 		let n_opts = self.fields[self.field_cur].opts.len();
 		rows.iter().enumerate().find(|(_, r)| match r {
-			Row::Opt(fi, oi)  => *fi == self.field_cur && *oi == target_opt && target_opt < n_opts,
-			Row::Custom(fi)   => *fi == self.field_cur && target_opt == n_opts,
+			Row::Opt(fi, oi)     => *fi == self.field_cur && *oi == target_opt && target_opt < n_opts,
+			Row::Custom(fi)      => *fi == self.field_cur && target_opt == n_opts,
 			Row::ActiveLabel(fi) => *fi == self.field_cur && target_opt == 0 && n_opts == 0,
 			_ => false,
 		}).map(|(i, _)| i).unwrap_or(0)
@@ -230,11 +416,14 @@ impl InitWizard {
 	}
 
 	fn confirm_current_and_advance(&mut self) {
-		if self.field_cur < self.fields.len() - 1 {
-			self.field_cur += 1;
-			self.opt_cur = 0;
-		} else {
-			self.confirmed = true;
+		match self.next_visible_field(self.field_cur) {
+			Some(next) => {
+				self.field_cur = next;
+				self.opt_cur = 0;
+			}
+			None => {
+				self.confirmed = true;
+			}
 		}
 	}
 
@@ -260,8 +449,13 @@ impl InitWizard {
 							if self.opt_cur > 0 {
 								self.opt_cur -= 1;
 							} else if self.field_cur > 0 {
-								self.field_cur -= 1;
-								self.opt_cur = self.fields[self.field_cur].opts.len();
+								// go back to the previous visible field
+								let mut prev = self.field_cur - 1;
+								while prev > 0 && self.should_skip(prev) { prev -= 1; }
+								if !self.should_skip(prev) {
+									self.field_cur = prev;
+									self.opt_cur = self.fields[prev].opts.len();
+								}
 							}
 						}
 						KeyCode::Down | KeyCode::Tab if !in_custom || is_secret_only => {
@@ -269,7 +463,6 @@ impl InitWizard {
 							if self.opt_cur < max {
 								self.opt_cur += 1;
 							} else {
-								// at Custom, Tab moves to next field
 								self.fields[self.field_cur].selected = self.opt_cur;
 								self.confirm_current_and_advance();
 							}
@@ -384,7 +577,13 @@ impl InitWizard {
 				}
 				Row::ActiveLabel(fi) => {
 					let field = &self.fields[*fi];
-					let progress = format!("  {}/{}", self.field_cur + 1, self.fields.len());
+					let visible_total = self.fields.iter().enumerate()
+						.filter(|(i, _)| !self.should_skip(*i))
+						.count();
+					let visible_done = self.fields.iter().enumerate()
+						.filter(|(i, _)| !self.should_skip(*i) && *i < self.field_cur)
+						.count();
+					let progress = format!("  {}/{}", visible_done + 1, visible_total);
 					f.render_widget(
 						Paragraph::new(Line::from(vec![
 							Span::styled("  ▸ ", Style::default().fg(Theme::ACCENT)),
@@ -403,7 +602,7 @@ impl InitWizard {
 					let is_sel = field.selected == *oi;
 					let is_focused = self.field_cur == *fi && self.opt_cur == *oi;
 
-					let bullet = if is_sel    { "  ●" } else { "  ○" };
+					let bullet = if is_sel { "  ●" } else { "  ○" };
 					let bullet_style = if is_sel || is_focused {
 						Style::default().fg(Theme::ACCENT)
 					} else {
@@ -416,7 +615,6 @@ impl InitWizard {
 					} else {
 						Theme::dim()
 					};
-
 					let bg = if is_focused { Theme::BG_SELECTED } else { Theme::BG };
 
 					f.render_widget(
@@ -442,10 +640,8 @@ impl InitWizard {
 						Theme::dim()
 					};
 					let bg = if is_focused { Theme::BG_SELECTED } else { Theme::BG };
-
 					let display = field.display_value();
 					let cursor = if is_focused { "█" } else { "" };
-
 					let custom_label = if field.opts.is_empty() { "" } else { "Custom...  " };
 
 					f.render_widget(
@@ -453,19 +649,11 @@ impl InitWizard {
 							Span::styled(format!("    {bullet} "), bullet_style),
 							Span::styled(
 								custom_label,
-								if is_focused {
-									Style::default().fg(Theme::ACCENT)
-								} else {
-									Theme::dim()
-								},
+								if is_focused { Style::default().fg(Theme::ACCENT) } else { Theme::dim() },
 							),
 							Span::styled(
 								format!("{}{}", display, cursor),
-								if is_focused {
-									Style::default().fg(Color::White)
-								} else {
-									Theme::secondary()
-								},
+								if is_focused { Style::default().fg(Color::White) } else { Theme::secondary() },
 							),
 						]))
 						.style(Style::default().bg(bg)),
@@ -475,20 +663,31 @@ impl InitWizard {
 			}
 		}
 
-		let total = self.fields.len();
-		let done  = self.field_cur;
-		let pct   = (done * 100 / total) as u16;
+		// Progress bar
+		let visible_total = self.fields.iter().enumerate()
+			.filter(|(i, _)| !self.should_skip(*i))
+			.count();
+		let visible_done = self.fields.iter().enumerate()
+			.filter(|(i, _)| !self.should_skip(*i) && *i < self.field_cur)
+			.count();
+		let pct = (visible_done * 100 / visible_total.max(1)) as u16;
 		let filled = (pct / 5) as usize;
 		let bar = format!(
 			"  [{}{}] {}/{}",
 			"█".repeat(filled),
 			"░".repeat(20usize.saturating_sub(filled)),
-			done, total,
+			visible_done, visible_total,
 		);
 
-		let footer_text = if self.confirmed || (self.field_cur == total - 1
-			&& self.opt_cur == self.fields[total - 1].total_options() - 1)
-		{
+		let last_fi = self.fields.iter().enumerate()
+			.rev()
+			.find(|(i, _)| !self.should_skip(*i))
+			.map(|(i, _)| i)
+			.unwrap_or(0);
+		let at_last = self.field_cur == last_fi
+			&& self.opt_cur == self.fields[last_fi].total_options() - 1;
+
+		let footer_text = if self.confirmed || at_last {
 			format!("{}   Enter Confirm   Esc Cancel", bar)
 		} else {
 			format!("{}   ↑↓ Select   Enter Confirm   Esc Cancel", bar)
@@ -541,10 +740,10 @@ impl InitWizard {
 
 	fn section_name(cursor: usize) -> &'static str {
 		match cursor {
-			0..=7  => "Database",
-			8..=12 => "Source Analysis",
-			13..=20 => "Parallelism",
-			21..=24 => "Credentials",
+			0..=9  => "Database",
+			10..=14 => "Source Analysis",
+			15..=22 => "Parallelism",
+			23..=26 => "Credentials",
 			_      => "Output & Behavior",
 		}
 	}
@@ -554,51 +753,79 @@ impl InitWizard {
 		let mut cfg: serde_json::Value =
 			serde_json::from_str(DEFAULT_CONFIG).expect("invalid default config");
 
-		let v  = |i: usize| self.fields[i].value();
-		let b  = |i: usize| v(i) == "true";
-		let n  = |i: usize, d: u64|    v(i).parse::<u64>().unwrap_or(d);
-		let u  = |i: usize, d: usize|  v(i).parse::<usize>().unwrap_or(d);
+		let v = |i: usize| self.fields[i].value();
+		let b = |i: usize| v(i) == "true";
+		let n = |i: usize, d: u64|   v(i).parse::<u64>().unwrap_or(d);
+		let u = |i: usize, d: usize| v(i).parse::<usize>().unwrap_or(d);
 
-		cfg["database"]["engine"]   = v(0).into();
-		cfg["database"]["host"]     = v(1).into();
-		cfg["database"]["port"]     = n(2, 5432).into();
-		cfg["database"]["database"] = v(3).into();
-		cfg["database"]["user"]     = v(4).into();
-		cfg["database"]["password"] = v(5).into();
-		cfg["database"]["ssl"]      = b(6).into();
-		cfg["database"]["poolSize"] = n(7, 10).into();
+		let engine = v(0);
+		cfg["database"]["engine"] = engine.clone().into();
 
-		cfg["sourceAnalysis"]["enabled"]         = b(8).into();
-		cfg["sourceAnalysis"]["downloadSource"]  = b(9).into();
-		cfg["sourceAnalysis"]["analyzeAst"]      = b(10).into();
-		cfg["sourceAnalysis"]["cacheTtl"]        = n(11, 604800).into();
-		cfg["sourceAnalysis"]["maxSourceSizeMb"] = n(12, 100).into();
+		// Remove all individual-field defaults first so the config is clean
+		let db = cfg["database"].as_object_mut().unwrap();
+		for key in &["url", "sqlitePath", "host", "port", "database", "user", "password", "ssl", "poolSize"] {
+			db.remove(*key);
+		}
 
-		cfg["parallelism"]["packageConcurrency"] = u(13, 4).into();
-		cfg["parallelism"]["apiConcurrency"]     = u(14, 3).into();
-		cfg["parallelism"]["osv"]["limit"]       = u(15, 10).into();
-		cfg["parallelism"]["osv"]["delayMs"]     = n(16, 100).into();
-		cfg["parallelism"]["github"]["limit"]    = u(17, 5).into();
-		cfg["parallelism"]["github"]["delayMs"]  = n(18, 200).into();
-		cfg["parallelism"]["nvd"]["limit"]       = u(19, 5).into();
-		cfg["parallelism"]["nvd"]["delayMs"]     = n(20, 200).into();
+		match engine.as_str() {
+			"sqlite" => {
+				let path = v(9);
+				cfg["database"]["sqlitePath"] = if path.is_empty() {
+					"opensentinel.db".into()
+				} else {
+					path.into()
+				};
+			}
+			_ => {
+				let url = v(1);
+				if !url.is_empty() {
+					// URL mode: only store url and poolSize
+					cfg["database"]["url"]      = url.into();
+					cfg["database"]["poolSize"] = n(8, 10).into();
+				} else {
+					// Individual fields mode
+					cfg["database"]["host"]     = v(2).into();
+					cfg["database"]["port"]     = n(3, 5432).into();
+					cfg["database"]["database"] = v(4).into();
+					cfg["database"]["user"]     = v(5).into();
+					cfg["database"]["password"] = v(6).into();
+					cfg["database"]["ssl"]      = b(7).into();
+					cfg["database"]["poolSize"] = n(8, 10).into();
+				}
+			}
+		}
 
-		cfg["credentials"]["githubToken"]    = v(21).into();
-		cfg["credentials"]["nvdApiKey"]      = v(22).into();
-		cfg["credentials"]["storage"]        = v(23).into();
-		cfg["credentials"]["keyringSupport"] = b(24).into();
+		cfg["sourceAnalysis"]["enabled"]         = b(10).into();
+		cfg["sourceAnalysis"]["downloadSource"]  = b(11).into();
+		cfg["sourceAnalysis"]["analyzeAst"]      = b(12).into();
+		cfg["sourceAnalysis"]["cacheTtl"]        = n(13, 604800).into();
+		cfg["sourceAnalysis"]["maxSourceSizeMb"] = n(14, 100).into();
 
-		let eco: Vec<serde_json::Value> = v(25).split(',')
+		cfg["parallelism"]["packageConcurrency"] = u(15, 4).into();
+		cfg["parallelism"]["apiConcurrency"]     = u(16, 3).into();
+		cfg["parallelism"]["osv"]["limit"]       = u(17, 10).into();
+		cfg["parallelism"]["osv"]["delayMs"]     = n(18, 100).into();
+		cfg["parallelism"]["github"]["limit"]    = u(19, 5).into();
+		cfg["parallelism"]["github"]["delayMs"]  = n(20, 200).into();
+		cfg["parallelism"]["nvd"]["limit"]       = u(21, 5).into();
+		cfg["parallelism"]["nvd"]["delayMs"]     = n(22, 200).into();
+
+		cfg["credentials"]["githubToken"]    = v(23).into();
+		cfg["credentials"]["nvdApiKey"]      = v(24).into();
+		cfg["credentials"]["storage"]        = v(25).into();
+		cfg["credentials"]["keyringSupport"] = b(26).into();
+
+		let eco: Vec<serde_json::Value> = v(27).split(',')
 			.map(|s| serde_json::Value::String(s.trim().to_string())).collect();
 		cfg["ecosystems"] = serde_json::Value::Array(eco);
 
-		let sev: Vec<serde_json::Value> = v(26).split(',')
+		let sev: Vec<serde_json::Value> = v(28).split(',')
 			.map(|s| serde_json::Value::String(s.trim().to_string())).collect();
 		cfg["severity"] = serde_json::Value::Array(sev);
 
-		cfg["excludeDevDeps"] = b(27).into();
-		cfg["keybindings"]    = v(28).into();
-		cfg["outputFormat"]   = v(29).into();
+		cfg["excludeDevDeps"] = b(29).into();
+		cfg["keybindings"]    = v(30).into();
+		cfg["outputFormat"]   = v(31).into();
 
 		cfg
 	}

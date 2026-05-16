@@ -22,13 +22,24 @@ pub struct OpenSentinelConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseConfig {
+	#[serde(default = "default_db_engine")]
 	pub engine: DatabaseEngine,
+	/// PostgreSQL / MySQL: full connection URL, overrides individual fields.
+	/// Supports ${ENV_VAR} syntax. Example: "${DATABASE_URL}"
+	#[serde(default)]
+	pub url: Option<EnvOrValue>,
+	/// SQLite: path to the database file. Defaults to "opensentinel.db".
+	#[serde(default)]
+	pub sqlite_path: Option<String>,
 	#[serde(default = "default_db_host")]
 	pub host: String,
 	#[serde(default = "default_db_port")]
 	pub port: u16,
+	#[serde(default = "default_db_name")]
 	pub database: String,
+	#[serde(default = "default_db_user")]
 	pub user: String,
+	#[serde(default = "default_db_password")]
 	pub password: EnvOrValue,
 	#[serde(default)]
 	pub ssl: bool,
@@ -125,12 +136,28 @@ fn default_output_format() -> OutputFormat {
 	OutputFormat::Sbom
 }
 
+fn default_db_engine() -> DatabaseEngine {
+	DatabaseEngine::PostgreSQL
+}
+
 fn default_db_host() -> String {
 	"localhost".to_string()
 }
 
 fn default_db_port() -> u16 {
 	5432
+}
+
+fn default_db_name() -> String {
+	"opensentinel".to_string()
+}
+
+fn default_db_user() -> String {
+	"postgres".to_string()
+}
+
+fn default_db_password() -> EnvOrValue {
+	EnvOrValue::EnvVar("${DB_PASSWORD}".to_string())
 }
 
 fn default_pool_size() -> u32 {

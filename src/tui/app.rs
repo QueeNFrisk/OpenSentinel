@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::config::{KeybindingsMode, OpenSentinelConfig};
 use crate::pipeline::{ChannelReporter, ScanEvent, ScanOrchestrator};
+use crate::pipeline::progress::ScanReporter;
 use crate::scoring::models::PackageRisk;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,12 +14,24 @@ pub enum ActivePanel {
 	Bottom,
 }
 
+#[derive(Debug, Clone)]
+pub enum DbStatus {
+	Pending,
+	Connecting,
+	Connected(String),
+	Failed(String),
+}
+
+const MAX_LOG_LINES: usize = 8;
+
 #[derive(Debug)]
 pub struct ScanningState {
 	pub current_package: String,
 	pub scanned: u64,
 	pub total: u64,
 	pub spinner_tick: u8,
+	pub db_status: DbStatus,
+	pub log: VecDeque<String>,
 	last_spinner_tick: std::time::Instant,
 }
 
@@ -29,7 +42,18 @@ impl Default for ScanningState {
 			scanned: 0,
 			total: 0,
 			spinner_tick: 0,
+			db_status: DbStatus::Pending,
+			log: VecDeque::with_capacity(MAX_LOG_LINES + 1),
 			last_spinner_tick: std::time::Instant::now(),
+		}
+	}
+}
+
+impl ScanningState {
+	pub fn push_log(&mut self, msg: String) {
+		self.log.push_back(msg);
+		if self.log.len() > MAX_LOG_LINES {
+			self.log.pop_front();
 		}
 	}
 }
@@ -64,7 +88,6 @@ pub struct ResultsState {
 	pub search_mode: bool,
 	pub show_direct_only: bool,
 	pub group_by_severity: bool,
-	pub show_ignored: bool,
 	pub ignored: HashSet<String>,
 	pub selected_vuln: usize,
 	pub detail_scroll: usize,
@@ -82,7 +105,6 @@ impl ResultsState {
 			search_mode: false,
 			show_direct_only: false,
 			group_by_severity: false,
-			show_ignored: false,
 			ignored: HashSet::new(),
 			selected_vuln: 0,
 			detail_scroll: 0,
@@ -105,25 +127,40 @@ impl ResultsState {
 	}
 
 	pub fn filtered_risks(&self) -> Vec<&PackageRisk> {
-		let mut filtered: Vec<&PackageRisk> = self
-			.risks
-			.iter()
-			.filter(|r| {
-				if !self.show_ignored && self.ignored.contains(&r.package_name) { return false; }
-				if self.show_direct_only && !r.is_direct { return false; }
-				if !self.search_query.is_empty() {
-					return r.package_name.to_lowercase().contains(&self.search_query.to_lowercase());
-				}
-				true
-			})
+		let query = self.search_query.to_lowercase();
+
+		let passes = |r: &&PackageRisk| -> bool {
+			if self.show_direct_only && !r.is_direct { return false; }
+			if !query.is_empty() {
+				return r.package_name.to_lowercase().contains(&query);
+			}
+			true
+		};
+
+		let mut active: Vec<&PackageRisk> = self.risks.iter()
+			.filter(|r| !self.ignored.contains(&r.package_name))
+			.filter(passes)
+			.collect();
+
+		let mut ignored: Vec<&PackageRisk> = self.risks.iter()
+			.filter(|r| self.ignored.contains(&r.package_name))
+			.filter(passes)
 			.collect();
 
 		if self.group_by_severity {
-			filtered.sort_by(|a, b| {
+			let by_score = |a: &&PackageRisk, b: &&PackageRisk| {
 				b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal)
-			});
+			};
+			active.sort_by(by_score);
+			ignored.sort_by(by_score);
 		}
-		filtered
+
+		active.extend(ignored);
+		active
+	}
+
+	pub fn is_ignored(&self, name: &str) -> bool {
+		self.ignored.contains(name)
 	}
 
 	pub fn toggle_ignored(&mut self) {
@@ -135,10 +172,6 @@ impl ResultsState {
 		} else {
 			self.ignored.insert(name.clone());
 			self.set_status(format!("Ignored: {name}"));
-			let count = self.filtered_risks().len();
-			if self.selected_index >= count && self.selected_index > 0 {
-				self.selected_index -= 1;
-			}
 		}
 		self.selected_vuln = 0;
 		self.detail_scroll = 0;
@@ -218,13 +251,17 @@ impl ResultsState {
 	}
 
 	pub fn stats(&self) -> ScanStats {
+		let active: Vec<_> = self.risks.iter()
+			.filter(|r| !self.ignored.contains(&r.package_name))
+			.collect();
 		ScanStats {
-			total:    self.risks.len(),
-			critical: self.risks.iter().filter(|r| r.severity_label() == "CRITICAL").count(),
-			high:     self.risks.iter().filter(|r| r.severity_label() == "HIGH").count(),
-			medium:   self.risks.iter().filter(|r| r.severity_label() == "MEDIUM").count(),
-			low:      self.risks.iter().filter(|r| r.severity_label() == "LOW").count(),
-			safe:     self.risks.iter().filter(|r| r.severity_label() == "SAFE").count(),
+			total:    active.len(),
+			critical: active.iter().filter(|r| r.severity_label() == "CRITICAL").count(),
+			high:     active.iter().filter(|r| r.severity_label() == "HIGH").count(),
+			medium:   active.iter().filter(|r| r.severity_label() == "MEDIUM").count(),
+			low:      active.iter().filter(|r| r.severity_label() == "LOW").count(),
+			safe:     active.iter().filter(|r| r.severity_label() == "SAFE").count(),
+			ignored:  self.ignored.len(),
 		}
 	}
 }
@@ -234,6 +271,18 @@ pub struct TuiApp {
 	pub keybindings: KeybindingsMode,
 	pub should_quit: bool,
 	pub rx: mpsc::UnboundedReceiver<ScanEvent>,
+}
+
+impl TuiApp {
+	pub fn from_results(risks: Vec<PackageRisk>, keybindings: KeybindingsMode) -> Self {
+		let (_tx, rx) = mpsc::unbounded_channel::<ScanEvent>();
+		Self {
+			state: AppState::Results(ResultsState::new(risks)),
+			keybindings,
+			should_quit: false,
+			rx,
+		}
+	}
 }
 
 impl TuiApp {
@@ -247,14 +296,54 @@ impl TuiApp {
 		let config = config.clone();
 		let handle = tokio::spawn(async move {
 			let reporter = ChannelReporter::new(tx.clone());
-			let base = ScanOrchestrator::new(&config, &project_path);
+
+			reporter.log(&format!(
+				"Scanning  {}",
+				project_path.display()
+			));
+
+			let base = ScanOrchestrator::new(&config, &project_path)
+				.with_exclude_dev(config.exclude_dev_deps);
+
+			let db_addr = crate::database::pool::DatabasePool::sanitized_url(&config.database);
+			tx.send(ScanEvent::DbConnecting).ok();
+			reporter.log(&format!("Connecting to {db_addr}"));
+
+			let db_pool_for_save: Option<sqlx::PgPool>;
+
 			let orchestrator = match crate::database::pool::DatabasePool::connect(&config.database).await {
-				Ok(db) => base.with_db(db.inner().clone()),
-				Err(_) => base,
+				Ok(db) => {
+					tx.send(ScanEvent::DbConnected(db_addr.clone())).ok();
+					reporter.log("Database ready  ·  advisory cache enabled");
+					let pool = db.inner().clone();
+					db_pool_for_save = Some(pool.clone());
+					base.with_db(pool)
+				}
+				Err(e) => {
+					let reason = e.to_string();
+					let short: String = reason.lines().next().unwrap_or(&reason).to_string();
+					tx.send(ScanEvent::DbFailed(short)).ok();
+					for line in reason.lines().take(4) {
+						reporter.log(line);
+					}
+					reporter.log("Continuing without database cache");
+					db_pool_for_save = None;
+					base
+				}
 			};
+
 			match orchestrator.run(&reporter).await {
-				Ok(risks) => { tx.send(ScanEvent::Done(risks)).ok(); }
-				Err(e)    => { tx.send(ScanEvent::Error(e.to_string())).ok(); }
+				Ok(risks) => {
+					if let Some(pool) = &db_pool_for_save {
+						let path_str = project_path.to_string_lossy();
+						match crate::database::queries::ScanQueries::save_full(pool, &path_str, &risks).await {
+							Ok(saved) => reporter.log(&format!("Scan saved  ·  id {}", &saved.id.to_string()[..8])),
+							Err(e)    => reporter.log(&format!("Warning: could not save scan: {e}")),
+						}
+					}
+					tx.send(ScanEvent::Done(risks)).ok();
+				}
+				Err(e) => { tx.send(ScanEvent::Error(e.to_string())).ok(); }
 			}
 		});
 
@@ -295,6 +384,26 @@ impl TuiApp {
 						s.current_package = name;
 					}
 				}
+				Ok(ScanEvent::Log(msg)) => {
+					if let AppState::Scanning(s) = &mut self.state {
+						s.push_log(msg);
+					}
+				}
+				Ok(ScanEvent::DbConnecting) => {
+					if let AppState::Scanning(s) = &mut self.state {
+						s.db_status = DbStatus::Connecting;
+					}
+				}
+				Ok(ScanEvent::DbConnected(info)) => {
+					if let AppState::Scanning(s) = &mut self.state {
+						s.db_status = DbStatus::Connected(info);
+					}
+				}
+				Ok(ScanEvent::DbFailed(reason)) => {
+					if let AppState::Scanning(s) = &mut self.state {
+						s.db_status = DbStatus::Failed(reason);
+					}
+				}
 				Ok(ScanEvent::Done(risks)) => {
 					self.state = AppState::Results(ResultsState::new(risks));
 				}
@@ -315,4 +424,5 @@ pub struct ScanStats {
 	pub medium: usize,
 	pub low: usize,
 	pub safe: usize,
+	pub ignored: usize,
 }
