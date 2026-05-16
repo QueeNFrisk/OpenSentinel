@@ -47,17 +47,31 @@ impl LeftPanel {
 				};
 				let meta_style = if is_ignored { Theme::ignored() } else { Theme::dim() };
 
-				let prefix = if is_ignored { "~ " } else { "  " };
-				let dep_tag = if risk.is_direct { "direct" } else { "trans " };
+				let (tree_prefix, name_indent) = if risk.is_direct {
+					if is_ignored { ("~ ".to_string(), "") } else { ("  ".to_string(), "") }
+				} else {
+					let depth = risk.depth.min(4) as usize;
+					let indent = "  ".repeat(depth.saturating_sub(1));
+					let connector = if is_ignored { "~ └─ " } else { "  └─ " };
+					(format!("{indent}{connector}"), "")
+				};
+
+				let meta_indent = if risk.is_direct {
+					"  ".to_string()
+				} else {
+					let depth = risk.depth.min(4) as usize;
+					let indent = "  ".repeat(depth.saturating_sub(1));
+					format!("{indent}     ")
+				};
 
 				ListItem::new(vec![
 					Line::from(vec![
-						Span::styled(prefix.to_string(), meta_style),
-						Span::styled(risk.package_name.clone(), name_style),
+						Span::styled(tree_prefix, meta_style),
+						Span::styled(format!("{}{}", name_indent, risk.package_name.clone()), name_style),
 					]),
 					Line::from(vec![
-						Span::styled(format!("  {:<8} ", sev), if is_ignored { Theme::ignored() } else { Theme::severity_style(sev) }),
-						Span::styled(format!("{:.2}  {} ", risk.final_score, dep_tag), meta_style),
+						Span::styled(format!("{}{:<8} ", meta_indent, sev), if is_ignored { Theme::ignored() } else { Theme::severity_style(sev) }),
+						Span::styled(format!("{:.2}", risk.final_score), meta_style),
 					]),
 				])
 			})
@@ -326,6 +340,11 @@ impl VulnDetailPanel {
 				Theme::base(),
 			)));
 		}
+
+		lines.push(Line::from(vec![
+			Span::styled("  URL:        ", Theme::secondary()),
+			Span::styled(advisory.canonical_url(), Theme::accent()),
+		]));
 
 		lines.push(Line::from(""));
 
@@ -676,6 +695,12 @@ impl VulnDetailPanel {
 						Theme::dim(),
 					)));
 				}
+				if !mapping.url.is_empty() {
+					lines.push(Line::from(vec![
+						Span::styled("    URL: ", Theme::secondary()),
+						Span::styled(mapping.url.clone(), Theme::accent()),
+					]));
+				}
 			}
 			lines.push(Line::from(""));
 		}
@@ -695,6 +720,7 @@ impl VulnDetailPanel {
 trait AdvisoryExt {
 	fn source_label(&self) -> &str;
 	fn severity_label(&self) -> String;
+	fn canonical_url(&self) -> String;
 }
 
 impl AdvisoryExt for crate::advisory::models::AdvisoryData {
@@ -714,6 +740,20 @@ impl AdvisoryExt for crate::advisory::models::AdvisoryData {
 			crate::database::models::SeverityLevel::Medium   => "MEDIUM".to_string(),
 			crate::database::models::SeverityLevel::Low      => "LOW".to_string(),
 			crate::database::models::SeverityLevel::Safe     => "SAFE".to_string(),
+		}
+	}
+
+	fn canonical_url(&self) -> String {
+		let id = &self.external_id;
+		match self.source {
+			crate::database::models::AdvisorySource::Osv =>
+				format!("https://osv.dev/vulnerability/{id}"),
+			crate::database::models::AdvisorySource::Github =>
+				format!("https://github.com/advisories/{id}"),
+			crate::database::models::AdvisorySource::Nvd =>
+				format!("https://nvd.nist.gov/vuln/detail/{id}"),
+			crate::database::models::AdvisorySource::Mitre =>
+				format!("https://cve.mitre.org/cgi-bin/cvename.cgi?name={id}"),
 		}
 	}
 }

@@ -42,6 +42,20 @@ pub async fn upsert_maintainer_metrics(pool: &PgPool, metrics: &MaintainerMetric
 	Ok(())
 }
 
+pub async fn delete_stale_maintainer_metrics(pool: &PgPool, ttl_seconds: i64) -> Result<u64> {
+	let result = sqlx::query(
+		r#"
+		DELETE FROM maintainer_metrics
+		WHERE fetched_at < NOW() - ($1 || ' seconds')::interval
+		"#,
+	)
+	.bind(ttl_seconds.to_string())
+	.execute(pool)
+	.await?;
+
+	Ok(result.rows_affected())
+}
+
 #[allow(dead_code)]
 pub async fn get_maintainer_metrics(
 	pool: &PgPool,

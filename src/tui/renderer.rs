@@ -49,7 +49,10 @@ impl Renderer {
 	fn draw(f: &mut Frame, app: &TuiApp) {
 		match &app.state {
 			AppState::Scanning(s) => Self::draw_scanning(f, s),
-			AppState::Results(s)  => Self::draw_results(f, app, s),
+			AppState::Results(s)  => {
+				Self::draw_results(f, app, s);
+				if s.show_help { Self::draw_help_overlay(f); }
+			}
 			AppState::Error(msg)  => Self::draw_error(f, msg),
 		}
 	}
@@ -293,6 +296,71 @@ impl Renderer {
 
 		f.render_widget(Paragraph::new(keybinds).style(Theme::base()), layout[0]);
 		f.render_widget(Paragraph::new(stat_line).style(Theme::base()), layout[1]);
+	}
+
+	fn draw_help_overlay(f: &mut Frame) {
+		use ratatui::{layout::Flex, widgets::Clear};
+
+		let rows = [
+			("Navigation", ""),
+			("↑ / ↓  or  k / j", "Move up / down in active panel"),
+			("Tab",              "Cycle panels: List → Vulns → Detail"),
+			("Enter",           "Drill into next panel"),
+			("Esc",             "Go back one panel"),
+			("",                ""),
+			("Actions", ""),
+			("I",               "Ignore / restore package (saved to config)"),
+			("/",               "Search packages by name"),
+			("D",               "Toggle direct dependencies only"),
+			("G",               "Group by severity"),
+			("E",               "Export filtered results to JSON"),
+			("C",               "Copy selected vulnerability ID to clipboard"),
+			("",                ""),
+			("App", ""),
+			("Q",               "Quit"),
+			("?",               "Toggle this help"),
+		];
+
+		let width  = 56u16;
+		let height = rows.len() as u16 + 4;
+		let area   = f.size();
+		let popup  = ratatui::layout::Layout::horizontal([Constraint::Length(width)])
+			.flex(Flex::Center)
+			.areas::<1>(
+				ratatui::layout::Layout::vertical([Constraint::Length(height)])
+					.flex(Flex::Center)
+					.areas::<1>(area)[0],
+			)[0];
+
+		f.render_widget(Clear, popup);
+		f.render_widget(
+			Block::default()
+				.title(" Help  (any key to close) ")
+				.borders(Borders::ALL)
+				.border_type(BorderType::Rounded)
+				.border_style(Theme::border_active())
+				.style(Theme::panel()),
+			popup,
+		);
+
+		let inner = popup.inner(Margin { horizontal: 2, vertical: 1 });
+		let mut lines: Vec<Line> = Vec::new();
+		for (key, desc) in &rows {
+			if key.is_empty() {
+				lines.push(Line::from(""));
+			} else if desc.is_empty() {
+				lines.push(Line::from(Span::styled(
+					key.to_string(),
+					Style::default().fg(Theme::SEVERITY_HIGH).add_modifier(Modifier::BOLD),
+				)));
+			} else {
+				lines.push(Line::from(vec![
+					Span::styled(format!("{:<22}", key), Style::default().fg(Theme::TEXT_DIM)),
+					Span::raw(desc.to_string()),
+				]));
+			}
+		}
+		f.render_widget(Paragraph::new(lines), inner);
 	}
 
 	fn draw_error(f: &mut Frame, msg: &str) {

@@ -149,6 +149,37 @@ impl ScanOrchestrator {
 						for diff in &version_changes {
 							let _ = upsert_version_diff(pool, diff).await;
 						}
+
+						let db_package = crate::database::models::Package {
+							id: package_id,
+							name: package.name.clone(),
+							version: package.version.clone(),
+							ecosystem: package.ecosystem.clone(),
+							registry_url: None,
+							checksum: None,
+							is_direct: package.is_direct,
+							depth: package.depth as i32,
+							created_at: chrono::Utc::now(),
+						};
+						if let Ok(saved_pkg) = crate::database::queries::PackageQueries::upsert(pool, &db_package).await {
+							for adv in &advisories {
+								let db_adv = crate::database::models::Advisory {
+									id: uuid::Uuid::new_v4(),
+									package_id: saved_pkg.id,
+									source: adv.source.clone(),
+									external_id: adv.external_id.clone(),
+									title: adv.title.clone(),
+									description: adv.description.clone(),
+									severity: adv.severity.clone(),
+									cvss_score: adv.cvss_score,
+									affected_versions: adv.affected_versions.clone(),
+									patched_versions: adv.patched_versions.clone(),
+									published_at: adv.published_at,
+									fetched_at: chrono::Utc::now(),
+								};
+								let _ = crate::database::queries::AdvisoryQueries::upsert(pool, &db_adv).await;
+							}
+						}
 					}
 
 					progress.tick_advisory();

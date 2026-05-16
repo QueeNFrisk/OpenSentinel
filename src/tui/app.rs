@@ -1,5 +1,5 @@
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 use crate::config::{KeybindingsMode, OpenSentinelConfig};
@@ -93,10 +93,11 @@ pub struct ResultsState {
 	pub detail_scroll: usize,
 	pub status_message: Option<String>,
 	pub status_clear_at: Option<std::time::Instant>,
+	pub show_help: bool,
 }
 
 impl ResultsState {
-	fn new(risks: Vec<PackageRisk>) -> Self {
+	fn new(risks: Vec<PackageRisk>, ignored: HashSet<String>) -> Self {
 		Self {
 			risks,
 			selected_index: 0,
@@ -105,11 +106,12 @@ impl ResultsState {
 			search_mode: false,
 			show_direct_only: false,
 			group_by_severity: false,
-			ignored: HashSet::new(),
+			ignored,
 			selected_vuln: 0,
 			detail_scroll: 0,
 			status_message: None,
 			status_clear_at: None,
+			show_help: false,
 		}
 	}
 
@@ -271,18 +273,21 @@ pub struct TuiApp {
 	pub keybindings: KeybindingsMode,
 	pub should_quit: bool,
 	pub rx: mpsc::UnboundedReceiver<ScanEvent>,
+	pub project_path: Option<PathBuf>,
 }
 
 impl TuiApp {
 	pub fn from_results(risks: Vec<PackageRisk>, keybindings: KeybindingsMode) -> Self {
 		let (_tx, rx) = mpsc::unbounded_channel::<ScanEvent>();
 		Self {
-			state: AppState::Results(ResultsState::new(risks)),
+			state: AppState::Results(ResultsState::new(risks, HashSet::new())),
 			keybindings,
 			should_quit: false,
 			rx,
+			project_path: None,
 		}
 	}
+
 }
 
 impl TuiApp {
@@ -292,6 +297,7 @@ impl TuiApp {
 		keybindings: KeybindingsMode,
 	) -> (Self, tokio::task::JoinHandle<()>) {
 		let (tx, rx) = mpsc::unbounded_channel::<ScanEvent>();
+		let project_path_stored = project_path.clone();
 
 		let config = config.clone();
 		let handle = tokio::spawn(async move {
@@ -352,6 +358,7 @@ impl TuiApp {
 			keybindings,
 			should_quit: false,
 			rx,
+			project_path: Some(project_path_stored),
 		};
 
 		(app, handle)
@@ -405,7 +412,11 @@ impl TuiApp {
 					}
 				}
 				Ok(ScanEvent::Done(risks)) => {
-					self.state = AppState::Results(ResultsState::new(risks));
+					let ignored = self.project_path.as_deref()
+						.and_then(|p| crate::config::ConfigLoader::load(p).ok())
+						.map(|c| c.ignored_packages.into_iter().collect::<HashSet<_>>())
+						.unwrap_or_default();
+					self.state = AppState::Results(ResultsState::new(risks, ignored));
 				}
 				Ok(ScanEvent::Error(msg)) => {
 					self.state = AppState::Error(msg);

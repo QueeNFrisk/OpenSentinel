@@ -33,6 +33,7 @@ async fn main() -> Result<()> {
 		Commands::Community(opts) => cli::handlers::handle_community(opts).await?,
 		Commands::History(opts)   => cli::handlers::handle_history(opts).await?,
 		Commands::View(opts)      => cli::handlers::handle_view(opts).await?,
+		Commands::Badge(opts)     => cli::handlers::handle_badge(opts).await?,
 	}
 
 	Ok(())

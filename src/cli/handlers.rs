@@ -60,7 +60,15 @@ pub async fn handle_scan(opts: ScanOptions) -> Result<()> {
 	let mut tui_config = config.clone();
 	if let Some(ref eco) = opts.ecosystem {
 		if !eco.is_empty() { tui_config.ecosystems = eco.clone(); }
+	} else if !ConfigLoader::has_explicit_ecosystems(&project_path) {
+		let detected = crate::parser::detector::detect_ecosystems(&project_path);
+		if !detected.is_empty() { tui_config.ecosystems = detected; }
 	}
+
+	if opts.watch {
+		return run_watch_mode(tui_config, project_path, opts).await;
+	}
+
 	let (mut app, _handle) = TuiApp::new_scanning(&tui_config, project_path, keybindings);
 	let mut renderer = crate::tui::renderer::Renderer::new()?;
 
@@ -77,6 +85,70 @@ pub async fn handle_scan(opts: ScanOptions) -> Result<()> {
 	}
 
 	Ok(())
+}
+
+async fn run_watch_mode(
+	config: crate::config::OpenSentinelConfig,
+	project_path: std::path::PathBuf,
+	opts: ScanOptions,
+) -> Result<()> {
+	use notify::{RecursiveMode, Watcher, recommended_watcher};
+	use std::sync::mpsc;
+	use std::time::Duration;
+
+	const LOCKFILES: &[&str] = &[
+		"Cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+		"bun.lockb", "go.sum", "poetry.lock", "Pipfile.lock",
+	];
+
+	println!("Watching {} for lockfile changes  (Ctrl+C to stop)", project_path.display());
+	println!("{}", "─".repeat(60));
+
+	let (tx, rx) = mpsc::channel();
+	let mut watcher = recommended_watcher(move |event| {
+		let _ = tx.send(event);
+	})?;
+	watcher.watch(&project_path, RecursiveMode::NonRecursive)?;
+
+	loop {
+		let progress = crate::pipeline::ScanProgress::new();
+		let orchestrator = build_orchestrator(
+			&config, &project_path,
+			opts.depth, &opts.exclude, &opts.ecosystem, opts.no_cache, opts.cache_dir.clone(),
+		).await;
+
+		match orchestrator.run(&progress).await {
+			Ok(mut risks) => {
+				apply_severity_filter(&mut risks, &opts.severity, &config.severity);
+				TableReporter.generate(&risks, None)?;
+				let worst = crate::pipeline::ScanOrchestrator::worst_severity(&risks);
+				println!("\nWatching for changes…  (worst: {:?})", worst);
+			}
+			Err(e) => eprintln!("Scan error: {e}"),
+		}
+
+		loop {
+			match rx.recv_timeout(Duration::from_millis(500)) {
+				Ok(Ok(event)) => {
+					let is_lockfile = event.paths.iter().any(|p| {
+						p.file_name()
+							.and_then(|n| n.to_str())
+							.map_or(false, |name| LOCKFILES.contains(&name))
+					});
+					if is_lockfile {
+						println!("\nChange detected — rescanning…");
+						break;
+					}
+				}
+				Ok(Err(e)) => {
+					eprintln!("Watch error: {e}");
+					break;
+				}
+				Err(mpsc::RecvTimeoutError::Timeout) => continue,
+				Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+			}
+		}
+	}
 }
 
 pub async fn handle_analyze(opts: AnalyzeOptions) -> Result<()> {
@@ -146,18 +218,98 @@ pub async fn handle_init(opts: InitOptions) -> Result<()> {
         );
     }
 
-    let Some(cfg) = InitWizard::new().run()? else {
+    let Some(mut cfg) = InitWizard::new().run()? else {
         println!("Cancelled.");
         return Ok(());
     };
 
+    // "auto" means don't write ecosystems key → auto-detection kicks in at scan time
+    if cfg.get("ecosystems").and_then(|v| v.as_array())
+        .map_or(false, |arr| arr.len() == 1 && arr[0].as_str() == Some("auto"))
+    {
+        if let Some(obj) = cfg.as_object_mut() {
+            obj.remove("ecosystems");
+        }
+    }
+
     let pretty = serde_json::to_string_pretty(&cfg).expect("failed to serialize config");
     std::fs::write(&config_path, &pretty)
         .with_context(|| format!("failed to write {}", config_path.display()))?;
-
     println!("Created {}", config_path.display());
+
+    if opts.ci {
+        generate_ci_workflow(&project_path)?;
+    }
+
     Ok(())
 }
+
+fn generate_ci_workflow(project_path: &std::path::Path) -> Result<()> {
+    let workflows_dir = project_path.join(".github").join("workflows");
+    std::fs::create_dir_all(&workflows_dir)
+        .with_context(|| format!("failed to create {}", workflows_dir.display()))?;
+
+    let workflow_path = workflows_dir.join("opensentinel.yml");
+    std::fs::write(&workflow_path, CI_WORKFLOW_TEMPLATE)
+        .with_context(|| format!("failed to write {}", workflow_path.display()))?;
+
+    println!("Created {}", workflow_path.display());
+    println!("Add these secrets to your repository:");
+    println!("  GITHUB_TOKEN    — already available in Actions");
+    println!("  DATABASE_URL    — your OpenSentinel PostgreSQL URL (optional)");
+    println!("  NVD_API_KEY     — NVD API key for faster lookups (optional)");
+    Ok(())
+}
+
+const CI_WORKFLOW_TEMPLATE: &str = r#"name: OpenSentinel Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Mondays at 06:00 UTC
+
+jobs:
+  security-scan:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenSentinel
+        run: |
+          curl -fsSL https://github.com/yourusername/opensentinel/releases/latest/download/opse-linux-x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin
+
+      - name: Run security scan
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          opse analyze --format json --output opensentinel-report.json || true
+          opse analyze --format table
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensentinel-report
+          path: opensentinel-report.json
+          retention-days: 30
+
+      - name: Fail on critical vulnerabilities
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: opse analyze --severity critical
+        # Exit code 3 = CRITICAL found, 2 = HIGH, 1 = MEDIUM, 0 = safe
+"#;
 
 pub async fn handle_community(opts: CommunityOptions) -> Result<()> {
 	match opts.command {
@@ -222,8 +374,24 @@ pub async fn handle_cache_clear() -> Result<()> {
 
 	let manager = crate::cache::CacheManager::new(cache_dir.clone(), 0);
 	manager.clear()?;
+	println!("File cache cleared: {}", cache_dir.display());
 
-	println!("Cache cleared: {}", cache_dir.display());
+	let config = crate::config::OpenSentinelConfig::default();
+	match DatabasePool::connect(&config.database).await {
+		Ok(db) => {
+			let pool = db.inner();
+			let ttl = config.source_analysis.cache_ttl as i64;
+			match crate::database::queries::AdvisoryQueries::delete_all_stale(pool, ttl).await {
+				Ok(n) => println!("DB advisories removed: {n} stale records (older than {ttl}s)"),
+				Err(e) => println!("DB advisory cleanup skipped: {e}"),
+			}
+			match crate::database::queries::delete_stale_maintainer_metrics(pool, ttl).await {
+				Ok(n) => println!("DB maintainer metrics removed: {n} stale records"),
+				Err(e) => println!("DB maintainer cleanup skipped: {e}"),
+			}
+		}
+		Err(_) => println!("Database unavailable — skipping DB cleanup"),
+	}
 
 	Ok(())
 }
@@ -242,7 +410,17 @@ async fn build_orchestrator(
 			.as_deref()
 			.map_or(false, |v| v.iter().any(|e| e.eq_ignore_ascii_case("devDependencies")));
 
-	let ecosystem_override = ecosystem.clone().filter(|v| !v.is_empty());
+	let ecosystem_override = {
+		let explicit = ecosystem.clone().filter(|v| !v.is_empty());
+		if explicit.is_some() {
+			explicit
+		} else if !ConfigLoader::has_explicit_ecosystems(project_path) {
+			let detected = crate::parser::detector::detect_ecosystems(project_path);
+			if detected.is_empty() { None } else { Some(detected) }
+		} else {
+			None
+		}
+	};
 
 	let base = crate::pipeline::ScanOrchestrator::new(config, project_path)
 		.with_depth(depth)
@@ -360,6 +538,53 @@ pub async fn handle_view(opts: ViewOptions) -> Result<()> {
 	let mut app = TuiApp::from_results(risks, keybindings);
 	let mut renderer = crate::tui::renderer::Renderer::new()?;
 	tokio::task::spawn_blocking(move || renderer.run(&mut app)).await??;
+	Ok(())
+}
+
+pub async fn handle_badge(opts: super::BadgeOptions) -> Result<()> {
+	use crate::database::models::SeverityLevel;
+
+	let project_path = opts.path.canonicalize()
+		.with_context(|| format!("path not found: {}", opts.path.display()))?;
+
+	let config = ConfigLoader::load(&project_path)?;
+	let progress = crate::pipeline::ScanProgress::new();
+	let orchestrator = build_orchestrator(
+		&config, &project_path,
+		None, &None, &None, false, None,
+	).await;
+
+	let risks = orchestrator.run(&progress).await?;
+	let worst = crate::pipeline::ScanOrchestrator::worst_severity(&risks);
+
+	let (label, color) = match worst {
+		SeverityLevel::Critical => ("critical", "critical"),
+		SeverityLevel::High     => ("high",     "important"),
+		SeverityLevel::Medium   => ("medium",   "yellow"),
+		SeverityLevel::Low      => ("low",      "informational"),
+		SeverityLevel::Safe     => ("passing",  "success"),
+	};
+
+	let style = &opts.style;
+	let badge_url = format!(
+		"https://img.shields.io/badge/security-{label}-{color}?style={style}&logo=rust"
+	);
+	let markdown = format!("[![Security]({badge_url})](https://github.com/yourusername/opensentinel)");
+
+	match &opts.output {
+		Some(path) => {
+			std::fs::write(path, &markdown)
+				.with_context(|| format!("failed to write {}", path.display()))?;
+			println!("Badge saved to {}", path.display());
+		}
+		None => {
+			println!("{markdown}");
+			println!();
+			println!("Worst severity : {worst:?}");
+			println!("Packages       : {}", risks.len());
+		}
+	}
+
 	Ok(())
 }
 

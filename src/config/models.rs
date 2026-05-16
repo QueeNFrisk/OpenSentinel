@@ -17,6 +17,8 @@ pub struct OpenSentinelConfig {
 	pub keybindings: KeybindingsMode,
 	#[serde(default = "default_output_format")]
 	pub output_format: OutputFormat,
+	#[serde(default)]
+	pub ignored_packages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

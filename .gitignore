@@ -24,6 +24,10 @@ opensentinel.json
 .opensentinel/
 opensentinel-*.json
 
+# ── Temporary diagnostic / test scripts (may contain hardcoded credentials) ───
+examples/test_*.rs
+examples/debug_*.rs
+
 # ── Database files ────────────────────────────────────────────────────────────
 *.db
 *.sqlite

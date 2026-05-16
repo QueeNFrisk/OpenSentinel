@@ -115,4 +115,18 @@ impl AdvisoryQueries {
 
 		Ok(result.rows_affected())
 	}
+
+	pub async fn delete_all_stale(pool: &PgPool, ttl_seconds: i64) -> Result<u64> {
+		let result = sqlx::query(
+			r#"
+			DELETE FROM advisories
+			WHERE fetched_at < NOW() - ($1 || ' seconds')::interval
+			"#,
+		)
+		.bind(ttl_seconds.to_string())
+		.execute(pool)
+		.await?;
+
+		Ok(result.rows_affected())
+	}
 }

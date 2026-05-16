@@ -4,6 +4,9 @@ use std::path::Path;
 use super::models::DependencyTree;
 use super::nodejs::NodejsParser;
 use super::bun::BunParser;
+use super::python::PythonParser;
+use super::golang::GolangParser;
+use super::rust_cargo::RustCargoParser;
 
 pub struct DependencyResolver;
 
@@ -20,6 +23,21 @@ impl DependencyResolver {
 				}
 				"bun" => {
 					if let Some(tree) = BunParser::detect_and_parse(project_path).await? {
+						trees.push(tree);
+					}
+				}
+				"python" => {
+					if let Some(tree) = PythonParser::detect_and_parse(project_path).await? {
+						trees.push(tree);
+					}
+				}
+				"golang" => {
+					if let Some(tree) = GolangParser::detect_and_parse(project_path).await? {
+						trees.push(tree);
+					}
+				}
+				"rust" => {
+					if let Some(tree) = RustCargoParser::detect_and_parse(project_path).await? {
 						trees.push(tree);
 					}
 				}

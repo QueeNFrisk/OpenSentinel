@@ -272,11 +272,16 @@ impl InitWizard {
 			Field::new("Keyring support", "Use OS keyring for secure credential storage",
 				vec![Opt::v("No", "false"), Opt::v("Yes", "true")]),
 			// 27 ── Ecosystems
-			Field::new("Ecosystems", "Which package managers to scan",
+			Field::new("Ecosystems", "Which package managers to scan (auto-detected if left as default)",
 				vec![
-					Opt::v("Node.js + Bun", "nodejs,bun"),
-					Opt::v("Node.js only",  "nodejs"),
-					Opt::v("Bun only",      "bun"),
+					Opt::v("Auto-detect",              "auto"),
+					Opt::v("Node.js + Bun",            "nodejs,bun"),
+					Opt::v("Rust (Cargo)",             "rust"),
+					Opt::v("Go",                       "golang"),
+					Opt::v("Python",                   "python"),
+					Opt::v("Node.js only",             "nodejs"),
+					Opt::v("Bun only",                 "bun"),
+					Opt::v("All ecosystems",           "nodejs,bun,rust,golang,python"),
 				]),
 			// 28 ── Severity filter
 			Field::new("Severity filter", "Only report packages at or above this level",

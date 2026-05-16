@@ -31,6 +31,11 @@ impl EventHandler {
 	fn handle_results(app: &mut TuiApp, key: KeyEvent) {
 		let AppState::Results(ref mut state) = app.state else { return };
 
+		if state.show_help {
+			state.show_help = false;
+			return;
+		}
+
 		if state.search_mode {
 			match key.code {
 				KeyCode::Esc | KeyCode::Enter => state.exit_search(),
@@ -38,6 +43,11 @@ impl EventHandler {
 				KeyCode::Char(c)   => state.push_search_char(c),
 				_ => {}
 			}
+			return;
+		}
+
+		if key.code == KeyCode::Char('?') {
+			state.show_help = true;
 			return;
 		}
 
@@ -80,7 +90,13 @@ impl EventHandler {
 				state.group_by_severity = !state.group_by_severity;
 				state.selected_index = 0;
 			}
-			KeyCode::Char('i') | KeyCode::Char('I') => state.toggle_ignored(),
+			KeyCode::Char('i') | KeyCode::Char('I') => {
+				state.toggle_ignored();
+				if let Some(ref path) = app.project_path {
+					let list: Vec<String> = state.ignored.iter().cloned().collect();
+					let _ = crate::config::ConfigLoader::save_ignored(path, &list);
+				}
+			}
 			KeyCode::Char('q') | KeyCode::Char('Q') => app.should_quit = true,
 			KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => app.should_quit = true,
 			KeyCode::Esc => {
@@ -143,7 +159,13 @@ impl EventHandler {
 				state.group_by_severity = !state.group_by_severity;
 				state.selected_index = 0;
 			}
-			KeyCode::Char('i') => state.toggle_ignored(),
+			KeyCode::Char('i') => {
+				state.toggle_ignored();
+				if let Some(ref path) = app.project_path {
+					let list: Vec<String> = state.ignored.iter().cloned().collect();
+					let _ = crate::config::ConfigLoader::save_ignored(path, &list);
+				}
+			}
 			_ => {}
 		}
 	}

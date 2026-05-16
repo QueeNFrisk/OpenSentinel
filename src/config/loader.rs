@@ -52,6 +52,57 @@ impl ConfigLoader {
 			.join(GLOBAL_CONFIG_FILE)
 	}
 
+	pub fn config_path(project_path: &Path) -> PathBuf {
+		project_path.join(PROJECT_CONFIG_FILE)
+	}
+
+	/// Returns true only when an explicit `ecosystems` key exists in a
+	/// project-local or global config file.  Falls back to false (→ auto-detect)
+	/// when neither file exists or neither has the key.
+	pub fn has_explicit_ecosystems(project_path: &Path) -> bool {
+		let project_has = Self::load_project_json(project_path)
+			.ok()
+			.flatten()
+			.and_then(|v| v.get("ecosystems").cloned())
+			.is_some();
+
+		if project_has {
+			return true;
+		}
+
+		Self::load_global_json()
+			.ok()
+			.and_then(|v| v.get("ecosystems").cloned())
+			.is_some()
+	}
+
+	pub fn save_ignored(project_path: &Path, ignored: &[String]) -> Result<()> {
+		let config_path = Self::config_path(project_path);
+		if !config_path.exists() {
+			return Ok(());
+		}
+		let content = fs::read_to_string(&config_path)
+			.with_context(|| format!("failed to read {}", config_path.display()))?;
+		let mut json: Value = serde_json::from_str(&content)
+			.with_context(|| format!("failed to parse {}", config_path.display()))?;
+
+		if let Value::Object(ref mut map) = json {
+			if ignored.is_empty() {
+				map.remove("ignoredPackages");
+			} else {
+				map.insert(
+					"ignoredPackages".to_string(),
+					Value::Array(ignored.iter().map(|s| Value::String(s.clone())).collect()),
+				);
+			}
+		}
+
+		let out = serde_json::to_string_pretty(&json).context("failed to serialize config")?;
+		fs::write(&config_path, out)
+			.with_context(|| format!("failed to write {}", config_path.display()))?;
+		Ok(())
+	}
+
 	fn merge_json(mut base: Value, override_val: Value) -> Value {
 		match (&mut base, override_val) {
 			(Value::Object(base_map), Value::Object(override_map)) => {

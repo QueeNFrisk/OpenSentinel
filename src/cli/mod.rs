@@ -52,6 +52,9 @@ pub enum Commands {
 
 	#[command(about = "Open a previous scan in the interactive TUI")]
 	View(ViewOptions),
+
+	#[command(about = "Generate a security badge for your README")]
+	Badge(BadgeOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -97,6 +100,12 @@ pub struct InitOptions {
 		help = "Overwrite existing opensentinel.json without prompting"
 	)]
 	pub force: bool,
+
+	#[arg(
+		long,
+		help = "Also generate .github/workflows/opensentinel.yml for CI/CD integration"
+	)]
+	pub ci: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -190,6 +199,12 @@ pub struct ScanOptions {
 		help = "TUI keybindings: arrows or vim"
 	)]
 	pub keybindings: String,
+
+	#[arg(
+		long,
+		help = "Re-scan automatically when lockfiles change (Cargo.lock, package-lock.json, go.sum, etc.)"
+	)]
+	pub watch: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -284,6 +299,35 @@ pub struct ViewOptions {
 		help = "TUI keybindings: arrows or vim"
 	)]
 	pub keybindings: String,
+}
+
+#[derive(Parser, Debug)]
+#[command(
+	after_help = "Examples:
+  opse badge                     Print badge markdown for current project
+  opse badge --style flat-square Use flat-square style
+  opse badge --output badge.md   Save badge to file"
+)]
+pub struct BadgeOptions {
+	#[arg(
+		default_value = ".",
+		help = "Path to project directory"
+	)]
+	pub path: PathBuf,
+
+	#[arg(
+		long,
+		default_value = "flat",
+		help = "Badge style: flat, flat-square, plastic, for-the-badge"
+	)]
+	pub style: String,
+
+	#[arg(
+		short,
+		long,
+		help = "Save badge markdown to file instead of printing"
+	)]
+	pub output: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]

@@ -58,6 +58,7 @@ sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
 semver = { version = "1", features = ["serde"] }
+notify = { version = "6", features = ["macos_kqueue"] }
 
 [dev-dependencies]
 mockito = "1"
