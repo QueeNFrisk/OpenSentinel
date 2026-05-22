@@ -210,11 +210,12 @@ impl ScanOrchestrator {
 
 					detections.extend(InstallHookAnalyzer::analyze(&package));
 
-					// Behavioral analysis: filesystem, network, and syscall patterns
-					detections.extend(
+					// Behavioral analysis: regex (Phase 2A) + AST (Phase 2B)
+					detections.extend(if analyze_ast {
+						BehavioralAnalyzer::scan_directory_with_ast(&scan_path)
+					} else {
 						BehavioralAnalyzer::scan_directory(&scan_path)
-							.unwrap_or_default()
-					);
+					}.unwrap_or_default());
 
 					if let Some(typo) = TyposquattingDetector::check(&package.name) {
 						detections.push(typo);

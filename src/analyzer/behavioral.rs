@@ -1,3 +1,4 @@
+use crate::analyzer::behavioral_ast::BehavioralAstAnalyzer;
 use crate::analyzer::models::DetectionMatch;
 use crate::database::models::PatternType;
 use crate::analyzer::patterns::{
@@ -97,6 +98,44 @@ impl BehavioralAnalyzer {
 
 		Ok(matches)
 	}
+
+	/// Combines regex pattern matching (Phase 2A) with AST-based semantic
+	/// analysis (Phase 2B). Produces higher-confidence findings by ignoring
+	/// code in comments and verifying actual call arguments.
+	pub fn scan_directory_with_ast(source_dir: &Path) -> Result<Vec<DetectionMatch>> {
+		let mut matches = Self::scan_directory(source_dir)?;
+
+		let skip_dirs = [
+			"node_modules", ".git", ".hg", "dist", "build", "target",
+			".cache", ".next", "__pycache__", ".venv", ".env",
+		];
+
+		for entry in WalkDir::new(source_dir)
+			.into_iter()
+			.filter_map(|e| e.ok())
+			.filter(|e| {
+				!skip_dirs.iter().any(|skip| {
+					e.path()
+						.components()
+						.any(|c| c.as_os_str().to_string_lossy() == *skip)
+				})
+			})
+		{
+			let path = entry.path();
+
+			if !should_scan_ast(path) {
+				continue;
+			}
+
+			if let Ok(content) = fs::read_to_string(path) {
+				let file_path_str = path.to_string_lossy().to_string();
+				let ast_findings = BehavioralAstAnalyzer::analyze(&content, &file_path_str);
+				matches.extend(ast_findings);
+			}
+		}
+
+		Ok(matches)
+	}
 }
 
 fn should_scan_file(path: &Path) -> bool {
@@ -109,6 +148,16 @@ fn should_scan_file(path: &Path) -> bool {
 					| "rs" | "toml" | "yaml" | "yml" | "sh" | "bash" | "zsh" | "rb"
 					| "php" | "java" | "c" | "cpp" | "h" | "hpp"
 			)
+		}
+		None => false,
+	}
+}
+
+fn should_scan_ast(path: &Path) -> bool {
+	match path.extension() {
+		Some(ext) => {
+			let ext_str = ext.to_string_lossy().to_lowercase();
+			matches!(ext_str.as_str(), "js" | "mjs" | "cjs" | "ts" | "mts" | "cts" | "py" | "go")
 		}
 		None => false,
 	}
