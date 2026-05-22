@@ -7,5 +7,7 @@ pub mod patterns;
 pub mod models;
 pub mod version_behavior;
 pub mod version_resolver;
+pub mod behavioral;
 
 pub use models::{AnalysisResult, DetectionMatch};
+pub use behavioral::BehavioralAnalyzer;

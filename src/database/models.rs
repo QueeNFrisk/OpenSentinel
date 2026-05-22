@@ -84,6 +84,9 @@ pub enum PatternType {
 	Typosquatting,
 	ReverseshellCode,
 	ObfuscatedCode,
+	FilesystemAccess,
+	NetworkConnection,
+	SystemCall,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

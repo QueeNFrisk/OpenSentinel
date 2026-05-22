@@ -96,6 +96,71 @@ impl MitreMappingEngine {
 					description: "Adversaries may transfer tools or other files from an external system into a compromised environment.".to_string(),
 				},
 			],
+
+			PatternType::FilesystemAccess => vec![
+				MitreData {
+					technique_id: "T1005".to_string(),
+					technique_name: "Data Staging".to_string(),
+					tactic: "Exfiltration".to_string(),
+					url: "https://attack.mitre.org/techniques/T1005/".to_string(),
+					description: "Adversaries may stage data collected from multiple sources in a central location or device prior to exfiltration.".to_string(),
+				},
+				MitreData {
+					technique_id: "T1057".to_string(),
+					technique_name: "Process Discovery".to_string(),
+					tactic: "Discovery".to_string(),
+					url: "https://attack.mitre.org/techniques/T1057/".to_string(),
+					description: "Adversaries may attempt to get information about running processes on a system.".to_string(),
+				},
+				MitreData {
+					technique_id: "T1083".to_string(),
+					technique_name: "File and Directory Discovery".to_string(),
+					tactic: "Discovery".to_string(),
+					url: "https://attack.mitre.org/techniques/T1083/".to_string(),
+					description: "Adversaries may enumerate files and directories or may search in specific locations of a host or network share for certain information within a file system.".to_string(),
+				},
+			],
+
+			PatternType::NetworkConnection => vec![
+				MitreData {
+					technique_id: "T1071".to_string(),
+					technique_name: "Application Layer Protocol".to_string(),
+					tactic: "Command and Control".to_string(),
+					url: "https://attack.mitre.org/techniques/T1071/".to_string(),
+					description: "Adversaries may communicate using application layer protocols to avoid detection and blending in with normal network traffic.".to_string(),
+				},
+				MitreData {
+					technique_id: "T1090".to_string(),
+					technique_name: "Proxy".to_string(),
+					tactic: "Command and Control".to_string(),
+					url: "https://attack.mitre.org/techniques/T1090/".to_string(),
+					description: "Adversaries may use a proxy to relay traffic between systems or act as an intermediary for network communications to mask the origin of data.".to_string(),
+				},
+				MitreData {
+					technique_id: "T1095".to_string(),
+					technique_name: "Non-Application Layer Protocol".to_string(),
+					tactic: "Command and Control".to_string(),
+					url: "https://attack.mitre.org/techniques/T1095/".to_string(),
+					description: "Adversaries may use a non-application layer protocol for communication between host and C2 server to avoid detection and blending in with normal network traffic.".to_string(),
+				},
+			],
+
+			PatternType::SystemCall => vec![
+				MitreData {
+					technique_id: "T1059".to_string(),
+					technique_name: "Command and Scripting Interpreter".to_string(),
+					tactic: "Execution".to_string(),
+					url: "https://attack.mitre.org/techniques/T1059/".to_string(),
+					description: "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries.".to_string(),
+				},
+				MitreData {
+					technique_id: "T1106".to_string(),
+					technique_name: "Native API".to_string(),
+					tactic: "Execution".to_string(),
+					url: "https://attack.mitre.org/techniques/T1106/".to_string(),
+					description: "Adversaries may interact with the native OS application programming interface (API) to execute behaviors.".to_string(),
+				},
+			],
 		}
 	}
 }

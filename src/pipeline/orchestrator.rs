@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::advisory::fetcher::AdvisoryFetcher;
 use crate::advisory::github_meta::{GithubMetaClient, parse_github_owner_repo};
+use crate::analyzer::behavioral::BehavioralAnalyzer;
 use crate::analyzer::credential::CredentialHarvestingDetector;
 use crate::analyzer::install_hook::InstallHookAnalyzer;
 use crate::analyzer::typosquatting::TyposquattingDetector;
@@ -208,6 +209,12 @@ impl ScanOrchestrator {
 					.unwrap_or_default();
 
 					detections.extend(InstallHookAnalyzer::analyze(&package));
+
+					// Behavioral analysis: filesystem, network, and syscall patterns
+					detections.extend(
+						BehavioralAnalyzer::scan_directory(&scan_path)
+							.unwrap_or_default()
+					);
 
 					if let Some(typo) = TyposquattingDetector::check(&package.name) {
 						detections.push(typo);
