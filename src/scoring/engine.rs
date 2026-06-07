@@ -2,7 +2,7 @@ use crate::advisory::mitre::MitreMappingEngine;
 use crate::advisory::models::AdvisoryData;
 use crate::analyzer::models::{AnalysisResult, DetectionMatch};
 use crate::community::models::CommunityReport;
-use crate::database::models::{MaintainerMetrics, SeverityLevel, VersionDiff};
+use crate::database::models::{MaintainerMetrics, PatternType, SeverityLevel, VersionDiff};
 use super::maintainer::MaintainerScorer;
 use super::models::PackageRisk;
 use crate::parser::models::ParsedPackage;
@@ -183,7 +183,14 @@ impl RiskScorer {
 		}
 
 		for detection in detections {
-			recs.push(format!("Review code: {}", detection.description));
+			if detection.pattern_type == PatternType::UnusedDependency {
+				recs.push(format!(
+					"Consider removing unused dependency — {}",
+					detection.description
+				));
+			} else {
+				recs.push(format!("Review code: {}", detection.description));
+			}
 		}
 
 		for diff in version_changes {

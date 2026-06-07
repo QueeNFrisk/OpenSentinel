@@ -9,6 +9,8 @@ pub mod version_behavior;
 pub mod version_resolver;
 pub mod behavioral;
 pub mod behavioral_ast;
+pub mod unused;
 
 pub use models::{AnalysisResult, DetectionMatch};
 pub use behavioral::BehavioralAnalyzer;
+pub use unused::UnusedDependencyAnalyzer;

@@ -161,6 +161,16 @@ impl MitreMappingEngine {
 					description: "Adversaries may interact with the native OS application programming interface (API) to execute behaviors.".to_string(),
 				},
 			],
+
+			PatternType::UnusedDependency => vec![
+				MitreData {
+					technique_id: "T1195".to_string(),
+					technique_name: "Supply Chain Compromise".to_string(),
+					tactic: "Initial Access".to_string(),
+					url: "https://attack.mitre.org/techniques/T1195/".to_string(),
+					description: "Unused dependencies expand the attack surface — a compromised unused package still executes install hooks and can introduce vulnerabilities silently.".to_string(),
+				},
+			],
 		}
 	}
 }

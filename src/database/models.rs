@@ -87,6 +87,7 @@ pub enum PatternType {
 	FilesystemAccess,
 	NetworkConnection,
 	SystemCall,
+	UnusedDependency,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

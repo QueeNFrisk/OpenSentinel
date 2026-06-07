@@ -227,14 +227,14 @@ impl Renderer {
 	fn render_body(f: &mut Frame, app: &TuiApp, state: &super::app::ResultsState, area: Rect) {
 		let horizontal = Layout::default()
 			.direction(Direction::Horizontal)
-			.constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+			.constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
 			.split(area);
 
 		LeftPanel::render(f, app, state, horizontal[0]);
 
 		let right_chunks = Layout::default()
 			.direction(Direction::Vertical)
-			.constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+			.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
 			.split(horizontal[1]);
 
 		VulnListPanel::render(f, app, state, right_chunks[0]);
@@ -257,20 +257,21 @@ impl Renderer {
 		} else {
 			match state.active_panel {
 				super::app::ActivePanel::Right => Line::from(vec![
-					k("[↑↓] Nav"), sep.clone(), k("[↵] Detail"), sep.clone(),
+					k("[↑↓] Navigate"), sep.clone(), k("[↵] Open detail"), sep.clone(),
 					k("[C] Copy"), sep.clone(), k("[E] Export"), sep.clone(),
-					k("[Tab]"), sep.clone(), k("[Esc] Back"), sep.clone(), k("[Q] Quit"),
+					k("[Tab] Switch"), sep.clone(), k("[Esc] Back"), sep.clone(),
+					k("[?] Help"), sep.clone(), k("[Q] Quit"),
 				]),
 				super::app::ActivePanel::Bottom => Line::from(vec![
 					k("[↑↓] Scroll"), sep.clone(), k("[C] Copy"), sep.clone(),
-					k("[E] Export"), sep.clone(), k("[Tab]"), sep.clone(),
-					k("[Esc] Back"), sep.clone(), k("[Q] Quit"),
+					k("[E] Export"), sep.clone(), k("[Tab] Switch"), sep.clone(),
+					k("[Esc] Back"), sep.clone(), k("[?] Help"), sep.clone(), k("[Q] Quit"),
 				]),
 				super::app::ActivePanel::Left => Line::from(vec![
-					k("[↑↓] Nav"), sep.clone(), k("[↵] Open"), sep.clone(),
-					k("[I] Ignore"), sep.clone(), k("[/] Search"), sep.clone(),
-					k("[D] Direct"), sep.clone(), k("[G] Group"), sep.clone(),
-					k("[E] Export"), sep.clone(), k("[Q] Quit"),
+					k("[↑↓] Navigate"), sep.clone(), k("[↵] View findings"), sep.clone(),
+					k("[/] Search"), sep.clone(), k("[I] Ignore"), sep.clone(),
+					k("[D] Direct only"), sep.clone(), k("[G] Group severity"), sep.clone(),
+					k("[?] Help"), sep.clone(), k("[Q] Quit"),
 				]),
 			}
 		};

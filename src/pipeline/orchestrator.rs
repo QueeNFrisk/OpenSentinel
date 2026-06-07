@@ -10,6 +10,7 @@ use crate::analyzer::behavioral::BehavioralAnalyzer;
 use crate::analyzer::credential::CredentialHarvestingDetector;
 use crate::analyzer::install_hook::InstallHookAnalyzer;
 use crate::analyzer::typosquatting::TyposquattingDetector;
+use crate::analyzer::unused::UnusedDependencyAnalyzer;
 use crate::analyzer::models::AnalysisResult;
 use crate::analyzer::version_resolver::VersionDiffResolver;
 use crate::cache::manager::CacheManager;
@@ -219,6 +220,18 @@ impl ScanOrchestrator {
 
 					if let Some(typo) = TyposquattingDetector::check(&package.name) {
 						detections.push(typo);
+					}
+
+					// Unused dependency analysis: check if declared deps are actually imported
+					if package.is_direct {
+						detections.extend(
+							UnusedDependencyAnalyzer::find_unused(
+								&scan_path,
+								&package.dependencies,
+								&package.ecosystem,
+							)
+							.unwrap_or_default(),
+						);
 					}
 
 					progress.tick_analysis();

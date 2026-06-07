@@ -15,11 +15,14 @@ OpenSentinel scans your full dependency tree — including transitive dependenci
 - **Full dependency tree** — parses lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`, `Cargo.lock`, `go.sum`, `poetry.lock`, `Pipfile.lock`)
 - **Multi-source advisories** — queries OSV, GitHub Security Advisories, and NVD in parallel
 - **Advisory source URL** — each vulnerability links to its canonical page (OSV, NVD, GitHub Advisories)
-- **Code pattern detection** — credential harvesting, crypto mining, network exfiltration, obfuscated `eval`/`require`
-- **AST analysis** — Tree-sitter-based deep inspection of source (requires `downloadSource: true`)
-- **MITRE ATT&CK mapping** — links detections to techniques (T1005, T1071, T1059, …)
+- **Credential harvesting detection** — env var access, hardcoded secrets, SSH keys, obfuscated `eval`/`require`
+- **Behavioral analysis (regex)** — 20 patterns for filesystem access (`/etc/passwd`, `~/.ssh`), network connections (reverse shells, hardcoded IPs, suspicious ports), and syscalls (`execve`, `LD_PRELOAD`, privilege escalation)
+- **Behavioral analysis (AST)** — Tree-sitter semantic inspection of JS, TypeScript, Python, and Go source: detects actual function calls (`fs.readFileSync`, `subprocess.run`, `exec.Command`) while ignoring identical patterns inside comments
+- **MITRE ATT&CK mapping** — all detections linked to techniques (T1005, T1057, T1059, T1071, T1083, T1106, …)
 - **Install script detection** — flags packages with `preinstall`/`postinstall` hooks
 - **Typosquatting detection** — catches packages with names similar to popular libraries
+- **Version behavior analysis** — detects unexpected changes between package releases
+- **Maintainer reputation scoring** — GitHub activity, commit cadence, open issues
 - **Interactive TUI** — dependency tree view, drill into each CVE, view code snippets, export on the fly
 - **Scan history** — every scan persisted to PostgreSQL; re-open any past scan with `opse view`
 - **Watch mode** — re-scans automatically when lockfiles change
@@ -286,7 +289,16 @@ By default, OpenSentinel only checks advisory databases (no source download). To
 }
 ```
 
-With `downloadSource: true`, OpenSentinel fetches package tarballs and scans the actual source for malicious patterns and AST-level anomalies. Results appear as `[CODE]` entries in the TUI with file paths and code snippets.
+With `downloadSource: true`, OpenSentinel fetches package tarballs and scans the actual source code. Results appear as `[CODE]` entries in the TUI with file paths, line numbers, and code snippets.
+
+`analyzeAst: true` activates both detection layers:
+
+| Layer | What it does |
+|-------|-------------|
+| Regex (Phase 2A) | Line-by-line pattern matching across all supported file types. Fast, works on shell scripts, YAML, and any text file. |
+| AST semantic (Phase 2B) | Tree-sitter parses JS/TS/Python/Go source into an AST. Detects actual function calls with suspicious arguments. Code in comments never triggers a finding. AST findings carry higher confidence than regex findings for the same pattern. |
+
+Both layers run in every scan; AST is additive. A finding from AST and regex for the same line appears once, with the higher confidence score taking precedence.
 
 ---
 
@@ -302,18 +314,66 @@ Each advisory shows its canonical URL (`osv.dev`, `nvd.nist.gov`, `github.com/ad
 
 ### Code pattern detection
 
-| Category | Examples |
-|----------|---------|
-| Credential harvesting | `process.env` access, hardcoded secrets, SSH key patterns |
-| Crypto mining | Mining pool connections (`stratum+tcp://`), CoinHive, XMRig |
-| Network exfiltration | HTTP POST to external hosts, base64-encoded URLs |
-| Obfuscated code | `eval(Buffer.from(..., 'base64'))`, dynamic `require` via encoded strings |
+Detections appear as `[CODE]` entries in the TUI with the exact file path, line number, and a 120-character code snippet.
+
+#### Credential and obfuscation patterns
+
+| Category | Examples | Confidence |
+|----------|---------|------------|
+| Credential harvesting | `process.env["API_KEY"]`, hardcoded secrets, SSH key patterns, AWS access keys | 0.60–0.99 |
+| Crypto mining | Mining pool connections (`stratum+tcp://`), CoinHive, XMRig | 0.75–0.98 |
+| Network exfiltration | HTTP POST to external hosts, DNS lookup with env var | 0.65–0.90 |
+| Obfuscated code | `eval(Buffer.from(..., 'base64'))`, dynamic `require` via encoded strings | 0.92–0.98 |
+
+#### Behavioral patterns — regex (all languages)
+
+| Category | Examples | Confidence |
+|----------|---------|------------|
+| Filesystem access | `/etc/passwd`, `/etc/shadow`, `/proc/self`, `~/.ssh`, `~/.aws`, writes to `/etc/`/`/boot/` | 0.70–0.95 |
+| Network connection | `bash -i >& /dev/tcp/`, `nc -e /bin/bash`, hardcoded IPs, ports 4444/6667/31337 | 0.50–0.98 |
+| System call | `execve /bin/bash`, `sudo chmod 4000`, `setuid`, `LD_PRELOAD`, `ptrace`, `fork()` | 0.70–0.95 |
+
+#### Behavioral patterns — AST semantic (JS/TS/Python/Go)
+
+AST detection uses Tree-sitter to parse source files. Code inside comments is ignored; only actual function calls are evaluated. AST findings carry higher confidence than regex findings for the same pattern.
+
+| Language | Filesystem | System call | Network |
+|----------|-----------|-------------|---------|
+| JavaScript / TypeScript | `fs.readFile/Sync()`, `fs.open()`, `fs.createReadStream()` with sensitive path | `child_process.exec/spawn/execFile[Sync]()` | `net.createConnection()`, `http.request()` on suspicious port |
+| Python | `open()`, `os.open()` with sensitive path | `subprocess.run/Popen/call()`, `os.system/popen/execv()` | `socket.connect()` on suspicious port |
+| Go | `os.Open/ReadFile()`, `ioutil.ReadFile()` with sensitive path | `exec.Command/CommandContext()` | `net.Dial/DialTCP()` on suspicious port |
+
+```js
+// This comment is ignored by AST analysis:
+// fs.readFileSync('/etc/passwd')
+
+// This is detected (actual call):
+const data = fs.readFileSync('/etc/passwd', 'utf8');  // confidence 0.96
+```
 
 ### Additional checks
 
 - **Install scripts** — `preinstall`/`postinstall`/`prepare` hooks
 - **Typosquatting** — names suspiciously similar to well-known packages
-- **MITRE ATT&CK** — technique mapping with direct links to `attack.mitre.org`
+- **Version behavior** — unexpected changes between releases (file removals, license changes, new dependencies)
+- **Maintainer reputation** — GitHub commit cadence, open issues, contributor count
+
+### MITRE ATT&CK mapping
+
+Every detection is automatically mapped to one or more [MITRE ATT&CK](https://attack.mitre.org) techniques. Technique IDs and names appear in the TUI detail panel alongside each finding, with a direct link to `attack.mitre.org`.
+
+| Detection category | Tactic | Techniques |
+|-------------------|--------|-----------|
+| Credential Harvesting | Credential Access | [T1552](https://attack.mitre.org/techniques/T1552/) · [T1552.001](https://attack.mitre.org/techniques/T1552/001/) Credentials In Files |
+| Crypto Mining | Impact | [T1496](https://attack.mitre.org/techniques/T1496/) Resource Hijacking |
+| Network Exfiltration | Exfiltration / C2 | [T1041](https://attack.mitre.org/techniques/T1041/) · [T1071.001](https://attack.mitre.org/techniques/T1071/001/) Web Protocols |
+| Obfuscated Code | Defense Evasion | [T1027](https://attack.mitre.org/techniques/T1027/) Obfuscated Files or Information |
+| Install Hook | Initial Access | [T1195.001](https://attack.mitre.org/techniques/T1195/001/) Compromise Software Dependencies |
+| Typosquatting | Initial Access | [T1195](https://attack.mitre.org/techniques/T1195/) Supply Chain Compromise |
+| Reverse Shell | Execution / C2 | [T1059](https://attack.mitre.org/techniques/T1059/) · [T1105](https://attack.mitre.org/techniques/T1105/) Ingress Tool Transfer |
+| Filesystem Access | Discovery / Exfiltration | [T1005](https://attack.mitre.org/techniques/T1005/) Data Staging · [T1057](https://attack.mitre.org/techniques/T1057/) Process Discovery · [T1083](https://attack.mitre.org/techniques/T1083/) File & Directory Discovery |
+| Network Connection | Command and Control | [T1071](https://attack.mitre.org/techniques/T1071/) App Layer Protocol · [T1090](https://attack.mitre.org/techniques/T1090/) Proxy · [T1095](https://attack.mitre.org/techniques/T1095/) Non-App Layer Protocol |
+| System Call | Execution | [T1059](https://attack.mitre.org/techniques/T1059/) Command Interpreter · [T1106](https://attack.mitre.org/techniques/T1106/) Native API |
 
 ---
 
@@ -400,10 +460,17 @@ Add these secrets to your repository:
 Contributions are welcome. Please open an issue before submitting large changes.
 
 ```bash
-# Run tests
+# Run all tests (208 tests — 158 unit + 50 integration)
 cargo test
 
-# Check for warnings
+# Run only unit tests
+cargo test --lib
+
+# Run a specific integration suite
+cargo test --test behavioral_integration_test
+cargo test --test behavioral_ast_integration_test
+
+# Check for warnings (treated as errors)
 cargo clippy -- -D warnings
 
 # Format

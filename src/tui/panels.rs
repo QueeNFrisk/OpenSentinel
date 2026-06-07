@@ -27,16 +27,25 @@ impl LeftPanel {
 			" Dependencies ".to_string()
 		};
 
+		let title_line = if is_active {
+			Line::from(Span::styled(title, Style::default().fg(Theme::BORDER_ACTIVE).add_modifier(Modifier::BOLD)))
+		} else {
+			Line::from(Span::styled(title, Style::default().fg(Theme::TEXT_SECONDARY)))
+		};
+
 		let block = Block::default()
-			.title(title)
+			.title(title_line)
 			.borders(Borders::ALL)
 			.border_type(BorderType::Rounded)
 			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
 			.style(Theme::panel());
 
+		let n = filtered.len();
+
 		let items: Vec<ListItem> = filtered
 			.iter()
-			.map(|risk| {
+			.enumerate()
+			.map(|(i, risk)| {
 				let is_ignored = state.is_ignored(&risk.package_name);
 				let sev = risk.severity_label();
 
@@ -45,33 +54,63 @@ impl LeftPanel {
 				} else {
 					Theme::severity_style(sev).add_modifier(Modifier::BOLD)
 				};
+				let dot_style  = if is_ignored { Theme::ignored() } else { Theme::severity_style(sev) };
 				let meta_style = if is_ignored { Theme::ignored() } else { Theme::dim() };
 
-				let (tree_prefix, name_indent) = if risk.is_direct {
-					if is_ignored { ("~ ".to_string(), "") } else { ("  ".to_string(), "") }
+				// Lookahead: is this the last sibling at its depth?
+				let is_last_sibling = if risk.is_direct {
+					filtered[i + 1..].iter().all(|r| !r.is_direct)
 				} else {
-					let depth = risk.depth.min(4) as usize;
-					let indent = "  ".repeat(depth.saturating_sub(1));
-					let connector = if is_ignored { "~ └─ " } else { "  └─ " };
-					(format!("{indent}{connector}"), "")
+					let depth = risk.depth;
+					let mut last = true;
+					for r in &filtered[i + 1..] {
+						if r.depth < depth { break; }
+						if r.depth == depth { last = false; break; }
+					}
+					last
 				};
 
-				let meta_indent = if risk.is_direct {
-					"  ".to_string()
+				let (tree_prefix, meta_indent) = if risk.is_direct {
+					("  ".to_string(), "  ".to_string())
 				} else {
 					let depth = risk.depth.min(4) as usize;
 					let indent = "  ".repeat(depth.saturating_sub(1));
-					format!("{indent}     ")
+					let connector = if is_ignored {
+						"~ └─ "
+					} else if is_last_sibling {
+						"  └─ "
+					} else {
+						"  ├─ "
+					};
+					(format!("{indent}{connector}"), format!("{indent}     "))
 				};
+
+				// Version + findings counts on the subtext line
+				let version = format!("v{}", risk.package_version);
+				let adv = risk.advisories.len();
+				let det = risk.detections.len();
+				let subtext = match (adv, det) {
+					(0, 0) => version,
+					(a, 0) => format!("{version}  ·  {} {}", a, if a == 1 { "CVE" } else { "CVEs" }),
+					(0, d) => format!("{version}  ·  {} {}", d, if d == 1 { "pattern" } else { "patterns" }),
+					(a, d) => format!(
+						"{version}  ·  {} {}  {} {}",
+						a, if a == 1 { "CVE" } else { "CVEs" },
+						d, if d == 1 { "pattern" } else { "patterns" },
+					),
+				};
+
+				// Suppress unused warning when all items are direct
+				let _ = n;
 
 				ListItem::new(vec![
 					Line::from(vec![
 						Span::styled(tree_prefix, meta_style),
-						Span::styled(format!("{}{}", name_indent, risk.package_name.clone()), name_style),
+						Span::styled("● ", dot_style),
+						Span::styled(risk.package_name.clone(), name_style),
 					]),
 					Line::from(vec![
-						Span::styled(format!("{}{:<8} ", meta_indent, sev), if is_ignored { Theme::ignored() } else { Theme::severity_style(sev) }),
-						Span::styled(format!("{:.2}", risk.final_score), meta_style),
+						Span::styled(format!("{meta_indent}{subtext}"), meta_style),
 					]),
 				])
 			})
@@ -110,23 +149,32 @@ impl VulnListPanel {
 			return;
 		};
 
-		let title = format!(
-			" {}@{}  —  {} ({:.1}) ",
-			risk.package_name, risk.package_version,
-			risk.severity_label(), risk.final_score
-		);
-		let block = Block::default()
-			.title(title)
-			.borders(Borders::ALL)
-			.border_type(BorderType::Rounded)
-			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
-			.style(Theme::panel());
-
 		let n_adv = risk.advisories.len();
 		let n_det = risk.detections.len();
 		let n_ver = risk.version_changes.len();
 		let n_com = risk.community_reports.len();
 		let total = n_adv + n_det + n_ver + n_com;
+
+		let title = if total == 0 {
+			format!(" {}@{}  ─  no findings ", risk.package_name, risk.package_version)
+		} else {
+			format!(
+				" {}@{}  ─  {} {} ",
+				risk.package_name, risk.package_version,
+				total, if total == 1 { "finding" } else { "findings" },
+			)
+		};
+		let title_line = if is_active {
+			Line::from(Span::styled(title, Style::default().fg(Theme::BORDER_ACTIVE).add_modifier(Modifier::BOLD)))
+		} else {
+			Line::from(Span::styled(title, Style::default().fg(Theme::TEXT_SECONDARY)))
+		};
+		let block = Block::default()
+			.title(title_line)
+			.borders(Borders::ALL)
+			.border_type(BorderType::Rounded)
+			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
+			.style(Theme::panel());
 
 		if total == 0 {
 			f.render_widget(
@@ -185,9 +233,14 @@ impl VulnListPanel {
 					};
 					let desc: String = det.description.chars().take(45).collect();
 					let desc = if det.description.len() > 45 { format!("{desc}…") } else { desc };
+					let tag = if det.pattern_type == crate::database::models::PatternType::UnusedDependency {
+						" [UNUSED] "
+					} else {
+						" [CODE] "
+					};
 					ListItem::new(vec![
 						Line::from(vec![
-							Span::styled(" [CODE] ", Theme::secondary()),
+							Span::styled(tag, Theme::secondary()),
 							Span::styled(desc, Theme::severity_style(sev)),
 							Span::styled(
 								format!("  {:.0}% conf.", det.confidence * 100.0),
@@ -248,7 +301,7 @@ impl VulnListPanel {
 		let list = List::new(items)
 			.block(block)
 			.highlight_style(Theme::selected())
-			.highlight_symbol("");
+			.highlight_symbol("▶ ");
 
 		f.render_stateful_widget(list, area, &mut list_state);
 	}
@@ -258,8 +311,15 @@ impl VulnDetailPanel {
 	pub fn render(f: &mut Frame, _app: &TuiApp, state: &ResultsState, area: Rect) {
 		let is_active = state.active_panel == ActivePanel::Bottom;
 
+		let detail_title = Self::compute_title(state);
+		let title_line = if is_active {
+			Line::from(Span::styled(detail_title, Style::default().fg(Theme::BORDER_ACTIVE).add_modifier(Modifier::BOLD)))
+		} else {
+			Line::from(Span::styled(detail_title, Style::default().fg(Theme::TEXT_SECONDARY)))
+		};
+
 		let block = Block::default()
-			.title(" Vulnerability Detail ")
+			.title(title_line)
 			.borders(Borders::ALL)
 			.border_type(BorderType::Rounded)
 			.border_style(if is_active { Theme::border_active() } else { Theme::border_inactive() })
@@ -399,6 +459,8 @@ impl VulnDetailPanel {
 	) -> Vec<Line<'static>> {
 		let mut lines = Vec::new();
 
+		let is_unused = detection.pattern_type == crate::database::models::PatternType::UnusedDependency;
+
 		let sev = if detection.confidence >= 0.8 {
 			"HIGH"
 		} else if detection.confidence >= 0.5 {
@@ -407,8 +469,10 @@ impl VulnDetailPanel {
 			"LOW"
 		};
 
+		let tag = if is_unused { "  [UNUSED] " } else { "  [CODE] " };
+
 		lines.push(Line::from(vec![
-			Span::styled("  [CODE] ", Theme::secondary()),
+			Span::styled(tag, Theme::secondary()),
 			Span::styled(detection.description.clone(), Theme::severity_style(sev)),
 			Span::styled(
 				format!("  {:.0}% confidence", detection.confidence * 100.0),
@@ -417,45 +481,69 @@ impl VulnDetailPanel {
 		]));
 		lines.push(Line::from(""));
 
-		match (&detection.file_path, detection.line_number) {
-			(Some(path), Some(line_num)) => {
-				lines.push(Line::from(vec![
-					Span::styled("  File: ", Theme::secondary()),
-					Span::styled(format!("{path}:{line_num}"), Theme::base()),
-				]));
-			}
-			(Some(path), None) => {
-				lines.push(Line::from(vec![
-					Span::styled("  File: ", Theme::secondary()),
-					Span::styled(path.clone(), Theme::base()),
-				]));
-			}
-			_ => {}
-		}
-
-		if let Some(snippet) = &detection.code_snippet {
+		if is_unused {
+			lines.push(Line::from(Span::styled(
+				"  ⊗ This package is declared in the manifest but not imported in source code.",
+				Theme::dim(),
+			)));
 			lines.push(Line::from(""));
-			lines.push(Line::from(Span::styled("  Code snippet:", Theme::accent())));
+			lines.push(Line::from(Span::styled(
+				"  Unused dependencies expand the attack surface — a compromised unused",
+				Theme::dim(),
+			)));
+			lines.push(Line::from(Span::styled(
+				"  package still executes install hooks and can introduce vulnerabilities.",
+				Theme::dim(),
+			)));
 			lines.push(Line::from(""));
-			for code_line in snippet.lines() {
-				lines.push(Line::from(vec![
-					Span::styled("    > ", Style::default().fg(Theme::ACCENT)),
-					Span::styled(
-						code_line.to_string(),
-						Style::default().fg(Theme::TEXT_PRIMARY),
-					),
-				]));
-			}
+			lines.push(Line::from(vec![
+				Span::styled("  ACTION: ", Theme::accent()),
+				Span::styled(
+					"Consider removing this dependency to reduce supply chain risk.",
+					Theme::base(),
+				),
+			]));
 		} else {
-			lines.push(Line::from(""));
-			lines.push(Line::from(Span::styled(
-				"  No code snippet available.",
-				Theme::dim(),
-			)));
-			lines.push(Line::from(Span::styled(
-				"  Enable sourceAnalysis.downloadSource in config to view code.",
-				Theme::dim(),
-			)));
+			match (&detection.file_path, detection.line_number) {
+				(Some(path), Some(line_num)) => {
+					lines.push(Line::from(vec![
+						Span::styled("  File: ", Theme::secondary()),
+						Span::styled(format!("{path}:{line_num}"), Theme::base()),
+					]));
+				}
+				(Some(path), None) => {
+					lines.push(Line::from(vec![
+						Span::styled("  File: ", Theme::secondary()),
+						Span::styled(path.clone(), Theme::base()),
+					]));
+				}
+				_ => {}
+			}
+
+			if let Some(snippet) = &detection.code_snippet {
+				lines.push(Line::from(""));
+				lines.push(Line::from(Span::styled("  Code snippet:", Theme::accent())));
+				lines.push(Line::from(""));
+				for code_line in snippet.lines() {
+					lines.push(Line::from(vec![
+						Span::styled("    > ", Style::default().fg(Theme::ACCENT)),
+						Span::styled(
+							code_line.to_string(),
+							Style::default().fg(Theme::TEXT_PRIMARY),
+						),
+					]));
+				}
+			} else {
+				lines.push(Line::from(""));
+				lines.push(Line::from(Span::styled(
+					"  No code snippet available.",
+					Theme::dim(),
+				)));
+				lines.push(Line::from(Span::styled(
+					"  Enable sourceAnalysis.downloadSource in config to view code.",
+					Theme::dim(),
+				)));
+			}
 		}
 
 		lines.push(Line::from(""));
@@ -713,6 +801,35 @@ impl VulnDetailPanel {
 					Span::styled(rec.clone(), Theme::base()),
 				]));
 			}
+		}
+	}
+
+	fn compute_title(state: &ResultsState) -> String {
+		let Some(risk) = state.selected_risk() else {
+			return " Detail ".to_string();
+		};
+		let n_adv = risk.advisories.len();
+		let n_det = risk.detections.len();
+		let n_ver = risk.version_changes.len();
+		let total = n_adv + n_det + n_ver + risk.community_reports.len();
+		if total == 0 {
+			return format!(" {}@{} ", risk.package_name, risk.package_version);
+		}
+		let sel = state.selected_vuln.min(total.saturating_sub(1));
+		if sel < n_adv {
+			format!(" {}  ─  {} ", risk.package_name, risk.advisories[sel].external_id)
+		} else if sel < n_adv + n_det {
+			let det = &risk.detections[sel - n_adv];
+			if det.pattern_type == crate::database::models::PatternType::UnusedDependency {
+				format!(" ⊗ {}@{}  ─  Unused ", risk.package_name, risk.package_version)
+			} else {
+				let label: String = det.description.chars().take(40).collect();
+				format!(" {}  ─  {} ", risk.package_name, label)
+			}
+		} else if sel < n_adv + n_det + n_ver {
+			format!(" {}  ─  version change ", risk.package_name)
+		} else {
+			format!(" {}  ─  community report ", risk.package_name)
 		}
 	}
 }
